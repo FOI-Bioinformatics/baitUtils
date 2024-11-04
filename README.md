@@ -13,14 +13,14 @@ baitUtils is a comprehensive toolkit for the analysis and visualization of bait 
 - Install the required packages and dependencies with:
 
 ```bash
-conda env create -f environment.yml
+conda create -n baitutils_env numpy pandas matplotlib-base seaborn scikit-learn biopython viennarna
 conda activate baitutils_env
 ```
 
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/username/baitUtils.git
+git clone https://github.com/FOI-Bioinformatics/baitUtils.git
 cd baitUtils
 pip install .
 ```
