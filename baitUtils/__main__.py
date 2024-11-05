@@ -3,7 +3,7 @@
 import argparse
 import sys
 from baitUtils._version import __version__  # Import version from _version.py
-from baitUtils import stats, plot
+from baitUtils import stats, plot, map  # Import the new map module
 
 
 def main():
@@ -21,11 +21,17 @@ def main():
     plot.add_arguments(parser_plot)
     parser_plot.set_defaults(func=plot.main)
 
+    # Subcommand for map
+    parser_map = subparsers.add_parser("map", help="Map baits against target and off-target sequences")
+    map.add_arguments(parser_map)
+    parser_map.set_defaults(func=map.main)
+
     args = parser.parse_args()
     if hasattr(args, "func"):
         args.func(args)
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()
