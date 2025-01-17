@@ -78,13 +78,21 @@ def add_arguments(parser):
         '--minIdentity',
         type=int,
         default=90,
-        help='Sets minimum sequence identity (in percent). Default is 90 for nucleotide searches.'
+        help='Sets minimum sequence identity (in percent). Default is 90 for nucleotide searches.',
+        choices=range(0, 101)  # Restrict to 0-100
     )
     parser.add_argument(
         '--filterIdentity',
         type=int,
         default=90,
-        help='Filter mappings with identity percentage less than this value. Must be greater than or equal to minIdentity.'
+        help='Filter mappings with identity percentage less than this value. Must be greater than or equal to minIdentity.',
+        choices=range(0, 101)  # Restrict to 0-100
+    )
+    parser.add_argument(
+        '--minMatchCount',  # Using minMatchCount to avoid confusion with pblat's minMatch
+        type=int,
+        default=0,
+        help='Minimum number of matching bases required (corresponds to first column in PSL). Default is 0 (no filtering).'
     )
     parser.add_argument(
         '--fasta-output',
@@ -149,9 +157,15 @@ def main(args):
         args.minIdentity
     )
 
+    # Determine filtered output path
+    mapping_filtered_output = os.path.join(args.outdir, f"{args.outprefix}-mapping_filtered.psl")
+    
     # Parse mapping output to get baits that mapped
     logging.info("Parsing mapping output...")
-    mapped_baits = parse_psl_file(mapping_output, args.filterIdentity)
+    mapped_baits = parse_psl_file(mapping_output, args.filterIdentity, args.minMatchCount, 
+                                filtered_output=mapping_filtered_output)
+
+    # Compute number of mapped baits
     logging.info(f"Number of mapped probes: {len(mapped_baits)}")
 
     # Compute unmapped baits
@@ -289,24 +303,35 @@ def run_pblat(baits_file: str, target_file: str, threads: int, output_file: str,
         logging.error(f"Error running pblat: {e}")
         sys.exit(1)
 
-def parse_psl_file(psl_file: str, filterIdentity: int) -> Set[str]:
+def parse_psl_file(psl_file: str, filterIdentity: int, minMatchCount: int = 0, filtered_output: str = None) -> Set[str]:
     """
-    Parse PSL file and return set of bait IDs that had hits with identity >= filterIdentity.
+    Parse PSL file and return set of bait IDs that had hits with identity >= filterIdentity
+    and matches >= minMatchCount. Optionally save filtered hits to a new PSL file.
 
     Args:
         psl_file (str): Path to PSL file.
         filterIdentity (int): Identity percentage threshold for filtering.
+        minMatchCount (int): Minimum number of matching bases required (Default: 0).
+        filtered_output (str): Optional path to save filtered PSL entries.
 
     Returns:
-        Set[str]: Set of bait IDs that had hits meeting the identity threshold.
+        Set[str]: Set of bait IDs that had hits meeting both thresholds.
     """
     mapped_baits = set()
+    header_lines = []
+    filtered_hits = []
+    
     try:
         with open(psl_file, 'r') as f:
             for line in f:
                 line = line.strip()
+                # Store header lines if we're going to write filtered output
+                if filtered_output and (line.startswith('psLayout') or line.startswith('-') or line.startswith('match')):
+                    header_lines.append(line)
+                    continue
                 if not line or line.startswith('psLayout') or line.startswith('-') or line.startswith('match') or line.startswith('no matches'):
                     continue  # Skip header and separator lines
+                
                 # Split on whitespace
                 cols = line.split()
                 if len(cols) < 21:
@@ -325,16 +350,38 @@ def parse_psl_file(psl_file: str, filterIdentity: int) -> Set[str]:
                     logging.warning(f"Non-integer value encountered in PSL file: {line}")
                     continue
 
-                # Compute alignment size
+                # Check both filters
+                if matches < minMatchCount:
+                    continue
+
                 size = matches + misMatches + repMatches + qNumInsert
                 if size == 0:
                     continue
+                    
                 identity_percentage = 100.0 * (matches + repMatches) / size
                 if identity_percentage >= filterIdentity:
                     mapped_baits.add(qName)
+                    if filtered_output:
+                        filtered_hits.append(line)
+
+        # Write filtered hits if output path provided
+        if filtered_output and filtered_hits:
+            try:
+                with open(filtered_output, 'w') as f:
+                    # Write header
+                    for header_line in header_lines:
+                        f.write(header_line + '\n')
+                    # Write filtered hits
+                    for hit in filtered_hits:
+                        f.write(hit + '\n')
+                logging.info(f"Wrote {len(filtered_hits)} filtered hits to {filtered_output}")
+            except Exception as e:
+                logging.error(f"Error writing filtered PSL file {filtered_output}: {e}")
+                
     except Exception as e:
         logging.error(f"Error parsing PSL file {psl_file}: {e}")
         sys.exit(1)
+        
     return mapped_baits
 
 def write_bait_ids(bait_ids: Set[str], output_file: str) -> None:
