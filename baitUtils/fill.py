@@ -15,8 +15,14 @@ from typing import Dict, List, Tuple, Set
 from collections import defaultdict
 from dataclasses import dataclass
 
-import pybedtools
-from pybedtools import BedTool
+try:
+    import pybedtools
+    from pybedtools import BedTool
+    HAS_PYBEDTOOLS = True
+except ImportError:
+    HAS_PYBEDTOOLS = False
+    BedTool = None
+    logging.warning("pybedtools not available - gap filling functionality may be limited")
 from Bio import SeqIO
 from Bio.Seq import Seq
 

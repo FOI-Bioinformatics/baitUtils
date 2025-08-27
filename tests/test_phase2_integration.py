@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+
+"""
+test_phase2_integration.py
+
+Integration tests for Phase 2 features of the baitUtils evaluate command.
+Tests interactive reporting, reference analysis, quality scoring, and benchmarking.
+"""
+
+import unittest
+import tempfile
+import shutil
+from pathlib import Path
+from unittest.mock import patch, MagicMock, mock_open
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from baitUtils.reference_analyzer import ReferenceAnalyzer
+from baitUtils.quality_scorer import QualityScorer, QualityScore
+from baitUtils.report_generator import InteractiveReportGenerator
+from baitUtils.interactive_plots import InteractivePlotter
+from baitUtils.benchmark import BenchmarkAnalyzer, TheoreticalOptimal, BenchmarkResult
+
+
+class TestReferenceAnalyzer(unittest.TestCase):
+    """Test reference sequence analysis functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = Path(tempfile.mkdtemp())
+        self.ref_file = self.test_dir / "test_reference.fasta"
+        
+        # Create mock reference file
+        with open(self.ref_file, 'w') as f:
+            f.write(">chr1\n")
+            f.write("ATCGATCGATCG" * 100 + "\n")  # 1200 bp
+            f.write(">chr2\n") 
+            f.write("GCTAGCTAGCTA" * 50 + "\n")   # 600 bp
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        shutil.rmtree(self.test_dir)
+    
+    @patch('baitUtils.reference_analyzer.SeqIO')
+    def test_analyze_reference(self, mock_seqio):
+        """Test reference sequence analysis."""
+        # Mock SeqIO.parse
+        mock_record1 = MagicMock()
+        mock_record1.id = "chr1"
+        mock_record1.seq = "ATCGATCGATCG" * 100
+        mock_record2 = MagicMock()
+        mock_record2.id = "chr2" 
+        mock_record2.seq = "GCTAGCTAGCTA" * 50
+        mock_seqio.parse.return_value = [mock_record1, mock_record2]
+        
+        analyzer = ReferenceAnalyzer(self.ref_file, window_size=100)
+        results = analyzer.analyze()
+        
+        # Check results structure
+        self.assertIn('total_length', results)
+        self.assertIn('num_sequences', results)
+        self.assertIn('challenging_regions', results)
+        self.assertIn('sequence_features', results)
+        
+        # Check basic statistics
+        self.assertEqual(results['num_sequences'], 2)
+        self.assertEqual(results['total_length'], 1800)
+    
+    def test_calculate_sequence_features(self):
+        """Test sequence feature calculations."""
+        analyzer = ReferenceAnalyzer(self.ref_file)
+        
+        test_seq = "ATCGATCGATCGAAAAAATTTTTCCCCCGGGGG"
+        features = analyzer._calculate_sequence_features(test_seq)
+        
+        # Check feature keys
+        expected_keys = ['gc_content', 'complexity', 'homopolymer_runs', 
+                        'dinucleotide_repeats', 'low_complexity']
+        for key in expected_keys:
+            self.assertIn(key, features)
+        
+        # Check GC content calculation
+        self.assertAlmostEqual(features['gc_content'], 0.5, places=1)
+        
+        # Check homopolymer detection
+        self.assertGreater(features['homopolymer_runs'], 0)
+
+
+class TestQualityScorer(unittest.TestCase):
+    """Test quality scoring system."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.coverage_stats = {
+            'coverage_breadth': 85.5,
+            'mean_depth': 12.3,
+            'gini_coefficient': 0.3,
+            'mapping_efficiency': 92.1,
+            'reference_length': 10000,
+            'covered_bases': 8550
+        }
+        
+        self.gap_analysis = {
+            'total_gaps': 25,
+            'total_gap_length': 1450,
+            'mean_gap_size': 58,
+            'max_gap_size': 500
+        }
+        
+        self.reference_analysis = {
+            'total_length': 10000,
+            'challenging_regions': [
+                {'start': 1000, 'end': 1200, 'length': 200},
+                {'start': 5000, 'end': 5100, 'length': 100}
+            ]
+        }
+    
+    def test_calculate_quality_score(self):
+        """Test overall quality score calculation."""
+        scorer = QualityScorer(
+            self.coverage_stats,
+            self.gap_analysis, 
+            self.reference_analysis
+        )
+        
+        quality_score = scorer.calculate_score()
+        
+        # Check quality score structure
+        self.assertIsInstance(quality_score, QualityScore)
+        self.assertTrue(0 <= quality_score.overall_score <= 10)
+        self.assertIn(quality_score.grade, ['A', 'B', 'C', 'D', 'F'])
+        
+        # Check component scores exist
+        self.assertIsInstance(quality_score.component_scores, dict)
+        self.assertIn('coverage_score', quality_score.component_scores)
+    
+    def test_component_scoring(self):
+        """Test individual component scoring."""
+        scorer = QualityScorer(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis
+        )
+        
+        # Test coverage scoring
+        coverage_score = scorer._score_coverage_breadth()
+        self.assertTrue(0 <= coverage_score <= 10)
+        
+        # Test depth uniformity scoring
+        depth_score = scorer._score_depth_uniformity()
+        self.assertTrue(0 <= depth_score <= 10)
+        
+        # Test gap scoring
+        gap_score = scorer._score_gap_analysis()
+        self.assertTrue(0 <= gap_score <= 10)
+
+
+class TestBenchmarkAnalyzer(unittest.TestCase):
+    """Test benchmarking system."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.coverage_stats = {
+            'coverage_breadth': 78.5,
+            'mean_depth': 8.2,
+            'gini_coefficient': 0.4,
+            'mapping_efficiency': 85.3,
+            'reference_length': 15000
+        }
+        
+        self.gap_analysis = {
+            'total_gaps': 45,
+            'total_gap_length': 3225,
+            'mean_gap_size': 71.7,
+            'max_gap_size': 800
+        }
+        
+        self.reference_analysis = {
+            'total_length': 15000,
+            'challenging_regions': [
+                {'start': 2000, 'end': 2300, 'length': 300},
+                {'start': 8000, 'end': 8150, 'length': 150}
+            ]
+        }
+        
+        self.quality_score = QualityScore(
+            overall_score=7.2,
+            grade='B',
+            component_scores={'coverage_score': 7.8, 'depth_uniformity_score': 6.5}
+        )
+    
+    def test_theoretical_optimal_calculation(self):
+        """Test theoretical optimal metrics calculation."""
+        analyzer = BenchmarkAnalyzer(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score
+        )
+        
+        theoretical = analyzer.calculate_theoretical_optimal()
+        
+        # Check theoretical optimal structure
+        self.assertIsInstance(theoretical, TheoreticalOptimal)
+        self.assertTrue(0 <= theoretical.max_coverage_breadth <= 100)
+        self.assertTrue(0 <= theoretical.theoretical_quality_score <= 10)
+        self.assertGreaterEqual(theoretical.min_possible_gaps, 0)
+    
+    def test_benchmark_coverage_breadth(self):
+        """Test coverage breadth benchmarking."""
+        analyzer = BenchmarkAnalyzer(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score
+        )
+        
+        theoretical = analyzer.calculate_theoretical_optimal()
+        result = analyzer.benchmark_coverage_breadth(theoretical)
+        
+        # Check benchmark result structure
+        self.assertIsInstance(result, BenchmarkResult)
+        self.assertTrue(0 <= result.efficiency_ratio <= 1)
+        self.assertIn(result.category, ['Excellent', 'Good', 'Fair', 'Poor'])
+        self.assertIsInstance(result.recommendations, list)
+    
+    def test_full_benchmark_analysis(self):
+        """Test complete benchmark analysis."""
+        analyzer = BenchmarkAnalyzer(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score
+        )
+        
+        benchmarks = analyzer.run_full_benchmark()
+        
+        # Check benchmark results structure
+        expected_metrics = ['coverage_breadth', 'depth_uniformity', 
+                           'gap_reduction', 'overall_quality']
+        for metric in expected_metrics:
+            self.assertIn(metric, benchmarks)
+            self.assertIsInstance(benchmarks[metric], BenchmarkResult)
+    
+    def test_benchmark_report_generation(self):
+        """Test benchmark report generation."""
+        analyzer = BenchmarkAnalyzer(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score
+        )
+        
+        benchmarks = analyzer.run_full_benchmark()
+        report = analyzer.generate_benchmark_report(benchmarks)
+        
+        # Check report content
+        self.assertIsInstance(report, str)
+        self.assertIn("PERFORMANCE BENCHMARK ANALYSIS", report)
+        self.assertIn("Improvement Recommendations", report)
+
+
+class TestInteractiveReportGenerator(unittest.TestCase):
+    """Test interactive HTML report generation."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = Path(tempfile.mkdtemp())
+        self.output_dir = self.test_dir / "output"
+        self.output_dir.mkdir()
+        
+        # Mock data
+        self.coverage_stats = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
+        self.gap_analysis = {'total_gaps': 20}
+        self.reference_analysis = {'total_length': 10000}
+        self.quality_score = QualityScore(8.5, 'A', {})
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        shutil.rmtree(self.test_dir)
+    
+    @patch('builtins.open', new_callable=mock_open)
+    def test_report_generation(self, mock_file):
+        """Test HTML report generation."""
+        generator = InteractiveReportGenerator(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score,
+            self.output_dir,
+            "oligos.fasta",
+            "reference.fasta"
+        )
+        
+        # Test report generation doesn't crash
+        try:
+            generator.generate_report()
+        except Exception as e:
+            self.fail(f"Report generation failed: {e}")
+    
+    def test_html_structure_validation(self):
+        """Test HTML report structure."""
+        generator = InteractiveReportGenerator(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score,
+            self.output_dir,
+            "oligos.fasta", 
+            "reference.fasta"
+        )
+        
+        html_content = generator._generate_html_content()
+        
+        # Check for essential HTML elements
+        self.assertIn('<html>', html_content)
+        self.assertIn('<head>', html_content)
+        self.assertIn('<body>', html_content)
+        self.assertIn('</html>', html_content)
+        
+        # Check for report sections
+        self.assertIn('Executive Summary', html_content)
+        self.assertIn('Coverage Analysis', html_content)
+
+
+class TestInteractivePlotter(unittest.TestCase):
+    """Test interactive plotting functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = Path(tempfile.mkdtemp())
+        self.output_dir = self.test_dir / "plots"
+        self.output_dir.mkdir()
+        
+        # Mock data
+        self.coverage_stats = {
+            'coverage_breadth': 82.3,
+            'mean_depth': 9.7,
+            'depth_distribution': {1: 82.3, 5: 65.2, 10: 45.1}
+        }
+        self.gap_analysis = {
+            'gaps': [
+                {'chromosome': 'chr1', 'start': 1000, 'end': 1200, 'length': 200},
+                {'chromosome': 'chr1', 'start': 3000, 'end': 3150, 'length': 150}
+            ]
+        }
+        self.reference_analysis = {'total_length': 10000}
+        self.quality_score = QualityScore(7.8, 'B', {})
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        shutil.rmtree(self.test_dir)
+    
+    @patch('plotly.graph_objects.Figure')
+    def test_plot_generation(self, mock_figure):
+        """Test interactive plot generation."""
+        # Mock plotly figure
+        mock_fig = MagicMock()
+        mock_figure.return_value = mock_fig
+        
+        plotter = InteractivePlotter(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score,
+            self.output_dir
+        )
+        
+        # Test individual plot generation
+        try:
+            plotter.create_coverage_dashboard()
+            plotter.create_gap_analysis_plot()
+            plotter.create_quality_assessment_plot()
+        except Exception as e:
+            self.fail(f"Plot generation failed: {e}")
+    
+    @patch('plotly.graph_objects.Figure.write_html')
+    def test_plot_saving(self, mock_write_html):
+        """Test plot file saving."""
+        plotter = InteractivePlotter(
+            self.coverage_stats,
+            self.gap_analysis,
+            self.reference_analysis,
+            self.quality_score,
+            self.output_dir
+        )
+        
+        # Test that plots are saved
+        plotter.generate_all_plots()
+        
+        # Check that write_html was called
+        self.assertTrue(mock_write_html.called)
+
+
+class TestPhase2Integration(unittest.TestCase):
+    """Test Phase 2 integration with main evaluate command."""
+    
+    @patch('baitUtils.evaluate.ReferenceAnalyzer')
+    @patch('baitUtils.evaluate.QualityScorer')
+    @patch('baitUtils.evaluate.BenchmarkAnalyzer')
+    @patch('baitUtils.evaluate.InteractiveReportGenerator')
+    @patch('baitUtils.evaluate.InteractivePlotter')
+    def test_phase2_workflow_integration(self, mock_plotter, mock_report,
+                                       mock_benchmark, mock_quality, mock_ref):
+        """Test Phase 2 workflow integration."""
+        # This would test the integration in the main evaluate.py
+        # For now, just ensure the imports work correctly
+        
+        from baitUtils import evaluate
+        
+        # Check that all Phase 2 classes are importable
+        self.assertTrue(hasattr(evaluate, 'ReferenceAnalyzer'))
+        self.assertTrue(hasattr(evaluate, 'QualityScorer'))
+        self.assertTrue(hasattr(evaluate, 'BenchmarkAnalyzer'))
+        self.assertTrue(hasattr(evaluate, 'InteractiveReportGenerator'))
+        self.assertTrue(hasattr(evaluate, 'InteractivePlotter'))
+
+
+if __name__ == '__main__':
+    unittest.main()

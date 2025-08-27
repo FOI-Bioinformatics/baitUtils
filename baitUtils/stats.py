@@ -18,7 +18,14 @@ import gzip
 from typing import Tuple, Dict, Any, List, Optional, Union, IO
 from Bio import SeqIO, Seq
 from Bio.SeqUtils import gc_fraction, MeltingTemp as mt
-import RNA  # ViennaRNA package for MFE calculation
+
+try:
+    import RNA  # ViennaRNA package for MFE calculation
+    HAS_VIENNA_RNA = True
+except ImportError:
+    HAS_VIENNA_RNA = False
+    logging.warning("ViennaRNA not available - MFE calculations will be disabled")
+
 from Bio.Align import PairwiseAligner
 from collections import Counter
 from math import log2
@@ -200,6 +207,9 @@ def calculate_mfe(sequence: str) -> Union[float, str]:
     Returns:
         Union[float, str]: MFE value in kcal/mol or 'NA' if calculation fails.
     """
+    if not HAS_VIENNA_RNA:
+        return 'NA'
+    
     try:
         md = RNA.md()
         md.material = 'DNA'  # Set the model to use DNA parameters

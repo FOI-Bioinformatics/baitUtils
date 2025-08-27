@@ -15,12 +15,18 @@ import sys
 import math
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union, Any
 from collections import defaultdict
 from dataclasses import dataclass
 
-import pybedtools
-from pybedtools import BedTool
+try:
+    import pybedtools
+    from pybedtools import BedTool
+    HAS_PYBEDTOOLS = True
+except ImportError:
+    HAS_PYBEDTOOLS = False
+    BedTool = None  # Define as None for type hints
+    logging.warning("pybedtools not available - some coverage analysis features may be limited")
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -156,7 +162,7 @@ def parse_psl_to_bed(
     min_length: int,
     min_similarity: float,
     temp_dir: Path | None = None
-) -> BedTool:
+) -> Any:
     """
     Parse PSL file into BED format (keeping only hits above min_length and min_similarity).
     """
@@ -195,7 +201,7 @@ def parse_psl_to_bed(
             f.write(record)
     return BedTool(temp_bed).sort()
 
-def create_genome_file(bed: BedTool, temp_dir: Path | None = None) -> str:
+def create_genome_file(bed: Any, temp_dir: Path | None = None) -> str:
     """
     Build a genome file from the sorted BED intervals 
     (required by bedtools genomecov).
@@ -212,11 +218,11 @@ def create_genome_file(bed: BedTool, temp_dir: Path | None = None) -> str:
     return genome_path
 
 def compute_uncovered_regions(
-    coverage_bed: BedTool,
+    coverage_bed: Any,
     min_coverage: float,
     max_coverage: float | None,
     genome_file: str
-) -> Tuple[Dict[str, List[Tuple[int,int]]], int, BedTool]:
+) -> Tuple[Dict[str, List[Tuple[int,int]]], int, Any]:
     """
     Compute uncovered regions below min_coverage using bedtools genomecov output.
     Returns a dictionary of uncovered intervals by chromosome, total uncovered bases,
@@ -274,7 +280,7 @@ def compute_uncovered_regions(
     return uncovered_regions, total_uncovered, coverage
 
 def check_coverage_mode(
-    bed: BedTool,
+    bed: Any,
     forced_oligos: set,
     min_coverage: float,
     max_coverage: float | None,
