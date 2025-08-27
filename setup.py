@@ -16,6 +16,9 @@ setup(
         'seaborn>=0.11.0',
         'scikit-learn>=0.24.0',
         'biopython>=1.78',
+        'plotly>=5.0.0',
+        'scipy>=1.7.0',
+        'pybedtools>=0.9.0',
     ],
     entry_points={
         'console_scripts': [
@@ -24,7 +27,7 @@ setup(
     },
     author='Andreas Sjödin',
     author_email='andreas.sjodin@gmail.com',
-    description='baitUtils is a comprehensive toolkit for the analysis and visualization of bait sequences used in in-solution hybridization',
+    description='Comprehensive toolkit for oligo/bait design, evaluation, and comparative analysis with advanced coverage assessment and interactive reporting',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     url='https://github.com/FOI-Bioinformatics/baitUtils',  
