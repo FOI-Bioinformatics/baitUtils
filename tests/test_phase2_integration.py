@@ -159,12 +159,12 @@ class TestQualityScorer(unittest.TestCase):
             self.reference_analysis
         )
         
-        quality_score = scorer.calculate_score()
+        quality_score = scorer.calculate_quality_score()
         
         # Check quality score structure
         self.assertIsInstance(quality_score, QualityScore)
         self.assertTrue(0 <= quality_score.overall_score <= 10)
-        self.assertIn(quality_score.grade, ['A', 'B', 'C', 'D', 'F'])
+        self.assertIn(quality_score.category, [QualityCategory.EXCELLENT, QualityCategory.GOOD, QualityCategory.FAIR, QualityCategory.POOR])
         
         # Check component scores exist
         self.assertIsInstance(quality_score.component_scores, dict)
@@ -183,7 +183,7 @@ class TestQualityScorer(unittest.TestCase):
         self.assertTrue(0 <= coverage_score <= 10)
         
         # Test depth uniformity scoring
-        depth_score = scorer._score_depth_uniformity()
+        depth_score = scorer._score_coverage_depth()
         self.assertTrue(0 <= depth_score <= 10)
         
         # Test gap scoring

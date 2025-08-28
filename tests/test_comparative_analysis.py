@@ -131,9 +131,7 @@ class TestComparativeAnalyzer(unittest.TestCase):
             'challenging_regions': []
         }
         
-        mock_quality.return_value.calculate_score.return_value = create_quality_score(
-            8.5, 'A', {'coverage_score': 8.5}
-        )
+        mock_quality.return_value.calculate_score.return_value = create_quality_score(8.5, 'A')
         
         mock_benchmark.return_value.run_full_benchmark.return_value = {}
         

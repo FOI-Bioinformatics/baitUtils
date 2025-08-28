@@ -98,18 +98,31 @@ class TestQualityScorer(unittest.TestCase):
         self.assertEqual(self.scorer.reference_analysis, self.reference_analysis)
         
         # Check default weights
-        expected_weights = {'coverage': 0.3, 'depth': 0.25, 'gaps': 0.25, 'mapping': 0.2}
+        expected_weights = {
+            'coverage_breadth': 0.30,
+            'coverage_depth': 0.20,
+            'mapping_efficiency': 0.15,
+            'gap_characteristics': 0.20,
+            'reference_difficulty': 0.15
+        }
         self.assertEqual(self.scorer.weights, expected_weights)
     
     def test_init_custom_weights(self):
-        """Test scorer initialization with custom weights."""
-        custom_weights = {'coverage': 0.4, 'depth': 0.3, 'gaps': 0.2, 'mapping': 0.1}
+        """Test scorer weight modification after initialization."""
         scorer = QualityScorer(
             self.coverage_stats,
             self.gap_analysis,
-            self.reference_analysis,
-            weights=custom_weights
+            self.reference_analysis
         )
+        # Modify weights after initialization
+        custom_weights = {
+            'coverage_breadth': 0.4,
+            'coverage_depth': 0.3,
+            'mapping_efficiency': 0.15,
+            'gap_characteristics': 0.1,
+            'reference_difficulty': 0.05
+        }
+        scorer.weights = custom_weights
         
         self.assertEqual(scorer.weights, custom_weights)
     
@@ -118,11 +131,11 @@ class TestQualityScorer(unittest.TestCase):
         score = self.scorer._score_coverage_breadth()
         
         # Check score is in valid range
-        self.assertTrue(0 <= score <= 10)
+        self.assertTrue(0 <= score <= 1)
         
         # Check score calculation
         # 82.5% should give a good score
-        self.assertGreater(score, 7.0)
+        self.assertGreater(score, 0.7)
         
         # Test edge cases
         perfect_stats = self.coverage_stats.copy()
@@ -137,18 +150,18 @@ class TestQualityScorer(unittest.TestCase):
         poor_score = poor_scorer._score_coverage_breadth()
         self.assertLess(poor_score, 5.0)
     
-    def test_score_depth_uniformity(self):
+    def test_score_coverage_depth(self):
         """Test depth uniformity scoring."""
-        score = self.scorer._score_depth_uniformity()
+        score = self.scorer._score_coverage_depth()
         
         # Check score is in valid range
-        self.assertTrue(0 <= score <= 10)
+        self.assertTrue(0 <= score <= 1)
         
         # Check that lower Gini coefficient gives higher score
         uniform_stats = self.coverage_stats.copy()
         uniform_stats['gini_coefficient'] = 0.1  # More uniform
         uniform_scorer = QualityScorer(uniform_stats, self.gap_analysis, self.reference_analysis)
-        uniform_score = uniform_scorer._score_depth_uniformity()
+        uniform_score = uniform_scorer._score_coverage_depth()
         
         self.assertGreater(uniform_score, score)
         
@@ -156,23 +169,23 @@ class TestQualityScorer(unittest.TestCase):
         variable_stats = self.coverage_stats.copy()
         variable_stats['gini_coefficient'] = 0.8  # Highly variable
         variable_scorer = QualityScorer(variable_stats, self.gap_analysis, self.reference_analysis)
-        variable_score = variable_scorer._score_depth_uniformity()
+        variable_score = variable_scorer._score_coverage_depth()
         
         self.assertLess(variable_score, 3.0)
     
-    def test_score_gap_analysis(self):
+    def test_score_gap_characteristics(self):
         """Test gap analysis scoring."""
-        score = self.scorer._score_gap_analysis()
+        score = self.scorer._score_gap_characteristics()
         
         # Check score is in valid range
-        self.assertTrue(0 <= score <= 10)
+        self.assertTrue(0 <= score <= 1)
         
         # Test with fewer gaps (should score higher)
         good_gaps = self.gap_analysis.copy()
         good_gaps['total_gaps'] = 5
         good_gaps['gap_percentage'] = 3.3
         good_scorer = QualityScorer(self.coverage_stats, good_gaps, self.reference_analysis)
-        good_score = good_scorer._score_gap_analysis()
+        good_score = good_scorer._score_gap_characteristics()
         
         self.assertGreater(good_score, score)
         
@@ -181,7 +194,7 @@ class TestQualityScorer(unittest.TestCase):
         bad_gaps['total_gaps'] = 200
         bad_gaps['gap_percentage'] = 45.0
         bad_scorer = QualityScorer(self.coverage_stats, bad_gaps, self.reference_analysis)
-        bad_score = bad_scorer._score_gap_analysis()
+        bad_score = bad_scorer._score_gap_characteristics()
         
         self.assertLess(bad_score, score)
     
@@ -190,10 +203,10 @@ class TestQualityScorer(unittest.TestCase):
         score = self.scorer._score_mapping_efficiency()
         
         # Check score is in valid range
-        self.assertTrue(0 <= score <= 10)
+        self.assertTrue(0 <= score <= 1)
         
         # 91.2% efficiency should give a good score
-        self.assertGreater(score, 8.0)
+        self.assertGreater(score, 0.8)
         
         # Test edge cases
         perfect_stats = self.coverage_stats.copy()
@@ -208,9 +221,9 @@ class TestQualityScorer(unittest.TestCase):
         poor_score = poor_scorer._score_mapping_efficiency()
         self.assertLess(poor_score, 5.0)
     
-    def test_calculate_score(self):
+    def test_calculate_quality_score(self):
         """Test overall score calculation."""
-        quality_score = self.scorer.calculate_score()
+        quality_score = self.scorer.calculate_quality_score()
         
         # Check return type
         self.assertIsInstance(quality_score, QualityScore)
@@ -219,7 +232,7 @@ class TestQualityScorer(unittest.TestCase):
         self.assertTrue(0 <= quality_score.overall_score <= 10)
         
         # Check grade assignment
-        self.assertIn(quality_score.grade, ['A', 'B', 'C', 'D', 'F'])
+        self.assertIn(quality_score.category, [QualityCategory.EXCELLENT, QualityCategory.GOOD, QualityCategory.FAIR, QualityCategory.POOR])
         
         # Check component scores exist
         self.assertIsInstance(quality_score.component_scores, dict)
@@ -231,19 +244,19 @@ class TestQualityScorer(unittest.TestCase):
         
         # Check grade assignment logic
         if quality_score.overall_score >= 9:
-            self.assertEqual(quality_score.grade, 'A')
+            self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
         elif quality_score.overall_score >= 8:
-            self.assertEqual(quality_score.grade, 'B')
+            self.assertEqual(quality_score.category, QualityCategory.GOOD)
         elif quality_score.overall_score >= 7:
-            self.assertEqual(quality_score.grade, 'C')
+            self.assertEqual(quality_score.category, QualityCategory.FAIR)
         elif quality_score.overall_score >= 6:
-            self.assertEqual(quality_score.grade, 'D')
+            self.assertEqual(quality_score.category, QualityCategory.POOR)
         else:
-            self.assertEqual(quality_score.grade, 'F')
+            self.assertEqual(quality_score.category, QualityCategory.POOR)
     
     def test_weighted_average_calculation(self):
         """Test that weighted average is calculated correctly."""
-        quality_score = self.scorer.calculate_score()
+        quality_score = self.scorer.calculate_quality_score()
         
         # Calculate expected weighted average
         component_scores = quality_score.component_scores
@@ -271,7 +284,7 @@ class TestQualityScorer(unittest.TestCase):
         ]
         
         for score, expected_grade in test_cases:
-            grade = self.scorer._assign_grade(score)
+            grade = self.scorer._determine_category(score)
             self.assertEqual(grade, expected_grade)
     
     def test_edge_cases(self):
@@ -295,11 +308,11 @@ class TestQualityScorer(unittest.TestCase):
         }
         
         zero_scorer = QualityScorer(zero_stats, zero_gaps, self.reference_analysis)
-        zero_quality = zero_scorer.calculate_score()
+        zero_quality = zero_scorer.calculate_quality_score()
         
         # Should get very low score
         self.assertLess(zero_quality.overall_score, 3.0)
-        self.assertEqual(zero_quality.grade, 'F')
+        self.assertEqual(zero_quality.category, QualityCategory.POOR)
         
         # Test with perfect metrics
         perfect_stats = {
@@ -320,11 +333,11 @@ class TestQualityScorer(unittest.TestCase):
         }
         
         perfect_scorer = QualityScorer(perfect_stats, perfect_gaps, self.reference_analysis)
-        perfect_quality = perfect_scorer.calculate_score()
+        perfect_quality = perfect_scorer.calculate_quality_score()
         
         # Should get high score
         self.assertGreater(perfect_quality.overall_score, 8.5)
-        self.assertIn(perfect_quality.grade, ['A', 'B'])
+        self.assertIn(perfect_quality.category, [QualityCategory.EXCELLENT, QualityCategory.GOOD])
     
     def test_missing_data_handling(self):
         """Test handling of missing data."""
@@ -338,8 +351,8 @@ class TestQualityScorer(unittest.TestCase):
         incomplete_scorer = QualityScorer(incomplete_stats, self.gap_analysis, self.reference_analysis)
         
         # Should handle missing data gracefully with defaults
-        score = incomplete_scorer._score_depth_uniformity()
-        self.assertTrue(0 <= score <= 10)
+        score = incomplete_scorer._score_coverage_depth()
+        self.assertTrue(0 <= score <= 1)
         
         coverage_score = incomplete_scorer._score_coverage_breadth()
         self.assertTrue(0 <= coverage_score <= 10)
