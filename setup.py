@@ -18,9 +18,12 @@ setup(
         'biopython>=1.78',
         'plotly>=5.0.0',
         'scipy>=1.7.0',
-        'pybedtools>=0.9.0',
         'tqdm>=4.60.0',
     ],
+    extras_require={
+        'bedtools': ['pybedtools>=0.9.0'],
+        'all': ['pybedtools>=0.9.0'],
+    },
     entry_points={
         'console_scripts': [
             'baitUtils = baitUtils.__main__:main',

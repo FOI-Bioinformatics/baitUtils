@@ -78,10 +78,10 @@ jobs:
 
     - name: Test import functionality
       run: |
-        python -c "import baitUtils; print('✓ Main package imports successfully')"
-        python -c "from baitUtils.sequence_analysis import SequenceAnalyzer; print('✓ Core modules import successfully')"
-        python -c "from baitUtils.sequence_statistics import SequenceStatsCalculator; print('✓ Statistics modules import successfully')"
-        python -c "from baitUtils.plotting_utils import StatisticalPlotter; print('✓ Plotting modules import successfully')"
+        python -c "import baitUtils; print('[OK] Main package imports successfully')"
+        python -c "from baitUtils.sequence_analysis import SequenceAnalyzer; print('[OK] Core modules import successfully')"
+        python -c "from baitUtils.sequence_statistics import SequenceStatsCalculator; print('[OK] Statistics modules import successfully')"
+        python -c "from baitUtils.plotting_utils import StatisticalPlotter; print('[OK] Plotting modules import successfully')"
 
     - name: Test CLI help commands
       run: |
@@ -105,19 +105,19 @@ jobs:
         from baitUtils.mapping_utils import SequenceMapper
         from baitUtils.coverage_checking import CoverageChecker
         from baitUtils.gap_filling_algorithm import MultiPassSelector
-        print('✅ All core modules import successfully')
+        print('[OK] All core modules import successfully')
         
         # Test basic functionality
         analyzer = SequenceAnalyzer()
         gc = analyzer.calculate_gc_content('ATGCGC')
         assert 60 <= gc <= 70, f'GC content calculation failed: {gc}'
-        print(f'✅ GC content calculation works: {gc:.1f}%')
+        print(f'[OK] GC content calculation works: {gc:.1f}%')
         
         entropy = analyzer.calculate_entropy('ATGC')
         assert entropy > 0, f'Entropy calculation failed: {entropy}'
-        print(f'✅ Entropy calculation works: {entropy:.2f}')
+        print(f'[OK] Entropy calculation works: {entropy:.2f}')
         
-        print('✅ Core functionality tests passed')
+        print('[OK] Core functionality tests passed')
         "
 
     - name: Run smoke tests (must pass)
@@ -237,12 +237,12 @@ jobs:
     - name: Check README exists
       run: |
         test -f README.md
-        echo "✓ README.md exists"
+        echo "[OK] README.md exists"
 
     - name: Check CONTRIBUTING.md exists
       run: |
         test -f CONTRIBUTING.md
-        echo "✓ CONTRIBUTING.md exists"
+        echo "[OK] CONTRIBUTING.md exists"
 
     - name: Validate package structure
       run: |
@@ -257,7 +257,7 @@ jobs:
         ]
         for f in required_files:
             assert os.path.exists(f), f'Missing required file: {f}'
-        print('✓ All required package files exist')
+        print('[OK] All required package files exist')
         "
 
     - name: Check version consistency
@@ -268,5 +268,5 @@ jobs:
         from baitUtils._version import __version__
         print(f'Package version: {__version__}')
         assert __version__.strip(), 'Version string is empty'
-        print('✓ Version is properly defined')
+        print('[OK] Version is properly defined')
         "
