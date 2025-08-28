@@ -169,3 +169,23 @@ Icon?
 ._*
 .Spotlight-V100
 .Trashes
+
+# baitUtils specific
+*.psl
+*.bed
+plots/
+coverage_report/
+test_output/
+test_plots/
+comparison_report/
+results/
+temp_*.bed
+temp_*.txt
+genome_*.txt
+selected_*.bed
+*_filtered.psl
+bandit-report.json
+
+# Data files that shouldn't be committed
+*.fasta.gz
+test_data/
