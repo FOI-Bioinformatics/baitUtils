@@ -32,10 +32,12 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/FOI-Bioinformatics/baitUtils',  
     classifiers=[
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11', 
         'Programming Language :: Python :: 3.12',
         'Operating System :: OS Independent',
         'License :: OSI Approved :: MIT License',
     ],
     include_package_data=True,
-    python_requires='>=3.11',
+    python_requires='>=3.10',
 )
