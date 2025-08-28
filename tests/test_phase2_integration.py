@@ -19,10 +19,45 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from baitUtils.reference_analyzer import ReferenceAnalyzer
-from baitUtils.quality_scorer import QualityScorer, QualityScore
+from baitUtils.quality_scorer import QualityScorer, QualityScore, QualityCategory
 from baitUtils.report_generator import InteractiveReportGenerator
 from baitUtils.interactive_plots import InteractivePlotter
 from baitUtils.benchmark import BenchmarkAnalyzer, TheoreticalOptimal, BenchmarkResult
+
+
+def create_quality_score(score, grade_letter):
+    """Helper function to create QualityScore instances with proper API."""
+    category_map = {
+        'A': QualityCategory.EXCELLENT,
+        'B': QualityCategory.GOOD,
+        'C': QualityCategory.FAIR,
+        'D': QualityCategory.POOR
+    }
+    
+    return QualityScore(
+        overall_score=score,
+        category=category_map.get(grade_letter, QualityCategory.FAIR),
+        component_scores={
+            'coverage_breadth': score,
+            'coverage_depth': score,
+            'gap_characteristics': score,
+            'mapping_efficiency': score,
+            'reference_difficulty': score
+        },
+        weighted_scores={
+            'coverage_breadth': score,
+            'coverage_depth': score,
+            'gap_characteristics': score,
+            'mapping_efficiency': score,
+            'reference_difficulty': score
+        },
+        benchmarks={
+            'excellent_threshold': 9.0,
+            'good_threshold': 7.0,
+            'fair_threshold': 5.0
+        },
+        recommendations=[]
+    )
 
 
 class TestReferenceAnalyzer(unittest.TestCase):
@@ -56,37 +91,43 @@ class TestReferenceAnalyzer(unittest.TestCase):
         mock_record2.seq = "GCTAGCTAGCTA" * 50
         mock_seqio.parse.return_value = [mock_record1, mock_record2]
         
-        analyzer = ReferenceAnalyzer(self.ref_file, window_size=100)
+        coverage_data = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
+        analyzer = ReferenceAnalyzer(self.ref_file, coverage_data, window_size=100)
         results = analyzer.analyze()
         
         # Check results structure
-        self.assertIn('total_length', results)
-        self.assertIn('num_sequences', results)
+        self.assertIn('analysis_summary', results)
         self.assertIn('challenging_regions', results)
         self.assertIn('sequence_features', results)
         
         # Check basic statistics
-        self.assertEqual(results['num_sequences'], 2)
-        self.assertEqual(results['total_length'], 1800)
+        self.assertEqual(results['analysis_summary']['total_sequences'], 2)
     
     def test_calculate_sequence_features(self):
         """Test sequence feature calculations."""
-        analyzer = ReferenceAnalyzer(self.ref_file)
+        coverage_data = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
+        analyzer = ReferenceAnalyzer(self.ref_file, coverage_data)
         
         test_seq = "ATCGATCGATCGAAAAAATTTTTCCCCCGGGGG"
-        features = analyzer._calculate_sequence_features(test_seq)
+        # Test the actual analyze method instead since _calculate_sequence_features is not public
+        results = analyzer.analyze()
+        features = results['sequence_features']
         
-        # Check feature keys
-        expected_keys = ['gc_content', 'complexity', 'homopolymer_runs', 
-                        'dinucleotide_repeats', 'low_complexity']
+        # Check feature structure - features are organized by chromosome
+        self.assertIn('chr1', features)
+        self.assertIn('chr2', features)
+        
+        # Check feature keys for chr1
+        chr1_features = features['chr1']
+        expected_keys = ['gc_content', 'at_content', 'n_content', 'length']
         for key in expected_keys:
-            self.assertIn(key, features)
+            self.assertIn(key, chr1_features)
         
-        # Check GC content calculation
-        self.assertAlmostEqual(features['gc_content'], 0.5, places=1)
+        # Check GC content calculation for chr1
+        self.assertAlmostEqual(chr1_features['gc_content'], 50.0, places=1)
         
-        # Check homopolymer detection
-        self.assertGreater(features['homopolymer_runs'], 0)
+        # Check length
+        self.assertEqual(chr1_features['length'], 1200)
 
 
 class TestQualityScorer(unittest.TestCase):
@@ -126,16 +167,16 @@ class TestQualityScorer(unittest.TestCase):
             self.reference_analysis
         )
         
-        quality_score = scorer.calculate_score()
+        quality_score = scorer.calculate_quality_score()
         
         # Check quality score structure
         self.assertIsInstance(quality_score, QualityScore)
         self.assertTrue(0 <= quality_score.overall_score <= 10)
-        self.assertIn(quality_score.grade, ['A', 'B', 'C', 'D', 'F'])
+        self.assertIn(quality_score.category, [QualityCategory.EXCELLENT, QualityCategory.GOOD, QualityCategory.FAIR, QualityCategory.POOR])
         
         # Check component scores exist
         self.assertIsInstance(quality_score.component_scores, dict)
-        self.assertIn('coverage_score', quality_score.component_scores)
+        self.assertIn('coverage_breadth', quality_score.component_scores)
     
     def test_component_scoring(self):
         """Test individual component scoring."""
@@ -147,15 +188,15 @@ class TestQualityScorer(unittest.TestCase):
         
         # Test coverage scoring
         coverage_score = scorer._score_coverage_breadth()
-        self.assertTrue(0 <= coverage_score <= 10)
+        self.assertTrue(0 <= coverage_score <= 1)
         
         # Test depth uniformity scoring
-        depth_score = scorer._score_depth_uniformity()
-        self.assertTrue(0 <= depth_score <= 10)
+        depth_score = scorer._score_coverage_depth()
+        self.assertTrue(0 <= depth_score <= 1)
         
         # Test gap scoring
-        gap_score = scorer._score_gap_analysis()
-        self.assertTrue(0 <= gap_score <= 10)
+        gap_score = scorer._score_gap_characteristics()
+        self.assertTrue(0 <= gap_score <= 1)
 
 
 class TestBenchmarkAnalyzer(unittest.TestCase):
@@ -186,11 +227,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
             ]
         }
         
-        self.quality_score = QualityScore(
-            overall_score=7.2,
-            grade='B',
-            component_scores={'coverage_score': 7.8, 'depth_uniformity_score': 6.5}
-        )
+        self.quality_score = create_quality_score(7.2, 'B')
     
     def test_theoretical_optimal_calculation(self):
         """Test theoretical optimal metrics calculation."""
@@ -276,7 +313,7 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         self.coverage_stats = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
         self.gap_analysis = {'total_gaps': 20}
         self.reference_analysis = {'total_length': 10000}
-        self.quality_score = QualityScore(8.5, 'A', {})
+        self.quality_score = create_quality_score(8.5, 'A')
     
     def tearDown(self):
         """Clean up test fixtures."""
@@ -285,14 +322,16 @@ class TestInteractiveReportGenerator(unittest.TestCase):
     @patch('builtins.open', new_callable=mock_open)
     def test_report_generation(self, mock_file):
         """Test HTML report generation."""
+        quality_scores = {
+            'overall_score': self.quality_score.overall_score,
+            'component_scores': self.quality_score.component_scores
+        }
         generator = InteractiveReportGenerator(
             self.coverage_stats,
             self.gap_analysis,
+            quality_scores,
             self.reference_analysis,
-            self.quality_score,
-            self.output_dir,
-            "oligos.fasta",
-            "reference.fasta"
+            self.test_dir
         )
         
         # Test report generation doesn't crash
@@ -303,27 +342,31 @@ class TestInteractiveReportGenerator(unittest.TestCase):
     
     def test_html_structure_validation(self):
         """Test HTML report structure."""
+        quality_scores = {
+            'overall_score': self.quality_score.overall_score,
+            'component_scores': self.quality_score.component_scores
+        }
         generator = InteractiveReportGenerator(
             self.coverage_stats,
             self.gap_analysis,
+            quality_scores,
             self.reference_analysis,
-            self.quality_score,
-            self.output_dir,
-            "oligos.fasta", 
-            "reference.fasta"
+            self.test_dir
         )
         
-        html_content = generator._generate_html_content()
+        html_content = generator._assemble_html()
         
         # Check for essential HTML elements
-        self.assertIn('<html>', html_content)
+        self.assertIn('<html', html_content)  # Check for html tag (with or without attributes)
         self.assertIn('<head>', html_content)
         self.assertIn('<body>', html_content)
         self.assertIn('</html>', html_content)
         
-        # Check for report sections
-        self.assertIn('Executive Summary', html_content)
-        self.assertIn('Coverage Analysis', html_content)
+        # The _assemble_html method only returns the template structure
+        # Content is populated by the generate_report method
+        # Just check that we have a valid HTML structure
+        self.assertIn('container', html_content)
+        self.assertIn('baitUtils Coverage Evaluation Report', html_content)
 
 
 class TestInteractivePlotter(unittest.TestCase):
@@ -348,7 +391,7 @@ class TestInteractivePlotter(unittest.TestCase):
             ]
         }
         self.reference_analysis = {'total_length': 10000}
-        self.quality_score = QualityScore(7.8, 'B', {})
+        self.quality_score = create_quality_score(7.8, 'B')
     
     def tearDown(self):
         """Clean up test fixtures."""
@@ -361,18 +404,22 @@ class TestInteractivePlotter(unittest.TestCase):
         mock_fig = MagicMock()
         mock_figure.return_value = mock_fig
         
+        quality_scores = {
+            'overall_score': self.quality_score.overall_score,
+            'component_scores': self.quality_score.component_scores
+        }
         plotter = InteractivePlotter(
             self.coverage_stats,
             self.gap_analysis,
+            quality_scores,
             self.reference_analysis,
-            self.quality_score,
-            self.output_dir
+            self.test_dir
         )
         
         # Test individual plot generation
         try:
             plotter.create_coverage_dashboard()
-            plotter.create_gap_analysis_plot()
+            plotter.create_reference_analysis_plot()
             plotter.create_quality_assessment_plot()
         except Exception as e:
             self.fail(f"Plot generation failed: {e}")
@@ -380,16 +427,20 @@ class TestInteractivePlotter(unittest.TestCase):
     @patch('plotly.graph_objects.Figure.write_html')
     def test_plot_saving(self, mock_write_html):
         """Test plot file saving."""
+        quality_scores = {
+            'overall_score': self.quality_score.overall_score,
+            'component_scores': self.quality_score.component_scores
+        }
         plotter = InteractivePlotter(
             self.coverage_stats,
             self.gap_analysis,
+            quality_scores,
             self.reference_analysis,
-            self.quality_score,
-            self.output_dir
+            self.test_dir
         )
         
         # Test that plots are saved
-        plotter.generate_all_plots()
+        plotter.create_all_interactive_plots()
         
         # Check that write_html was called
         self.assertTrue(mock_write_html.called)

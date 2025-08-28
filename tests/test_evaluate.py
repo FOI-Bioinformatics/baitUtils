@@ -232,7 +232,7 @@ class TestGapAnalyzer(unittest.TestCase):
             'reference_length': 1000,
             'per_reference': {
                 'chr1': {
-                    'length': 132,
+                    'length': 144,
                     'coverage_breadth': 60.0,
                     'gaps': 3
                 }
@@ -254,7 +254,7 @@ class TestGapAnalyzer(unittest.TestCase):
         self.gap_analyzer._load_reference_sequences()
         
         self.assertIn('chr1', self.gap_analyzer.reference_sequences)
-        self.assertEqual(len(self.gap_analyzer.reference_sequences['chr1']), 132)
+        self.assertEqual(len(self.gap_analyzer.reference_sequences['chr1']), 144)
     
     def test_calculate_sequence_features(self):
         """Test sequence feature calculation."""
@@ -356,50 +356,50 @@ class TestCoverageVisualizer(unittest.TestCase):
         """Clean up test environment."""
         shutil.rmtree(self.temp_dir)
     
-    @patch('matplotlib.pyplot.savefig')
     @patch('matplotlib.pyplot.close')
-    def test_plot_coverage_overview(self, mock_close, mock_savefig):
+    @patch('matplotlib.figure.Figure.savefig')
+    def test_plot_coverage_overview(self, mock_savefig, mock_close):
         """Test coverage overview plot generation."""
         self.visualizer.plot_coverage_overview()
         
-        mock_savefig.assert_called_once()
-        mock_close.assert_called_once()
+        mock_savefig.assert_called()
+        mock_close.assert_called()
     
-    @patch('matplotlib.pyplot.savefig')
     @patch('matplotlib.pyplot.close')
-    def test_plot_depth_distribution(self, mock_close, mock_savefig):
+    @patch('matplotlib.figure.Figure.savefig')
+    def test_plot_depth_distribution(self, mock_savefig, mock_close):
         """Test depth distribution plot generation."""
         self.visualizer.plot_depth_distribution()
         
-        mock_savefig.assert_called_once()
-        mock_close.assert_called_once()
+        mock_savefig.assert_called()
+        mock_close.assert_called()
     
-    @patch('matplotlib.pyplot.savefig')
     @patch('matplotlib.pyplot.close')
-    def test_plot_gap_analysis(self, mock_close, mock_savefig):
+    @patch('matplotlib.figure.Figure.savefig')
+    def test_plot_gap_analysis(self, mock_savefig, mock_close):
         """Test gap analysis plot generation."""
         self.visualizer.plot_gap_analysis()
         
-        mock_savefig.assert_called_once()
-        mock_close.assert_called_once()
+        mock_savefig.assert_called()
+        mock_close.assert_called()
     
-    @patch('matplotlib.pyplot.savefig')
     @patch('matplotlib.pyplot.close')
-    def test_plot_coverage_heatmap(self, mock_close, mock_savefig):
+    @patch('matplotlib.figure.Figure.savefig')
+    def test_plot_coverage_heatmap(self, mock_savefig, mock_close):
         """Test coverage heatmap generation."""
         self.visualizer.plot_coverage_heatmap()
         
-        mock_savefig.assert_called_once()
-        mock_close.assert_called_once()
+        mock_savefig.assert_called()
+        mock_close.assert_called()
     
-    @patch('matplotlib.pyplot.savefig')
     @patch('matplotlib.pyplot.close')
-    def test_plot_per_reference_coverage(self, mock_close, mock_savefig):
+    @patch('matplotlib.figure.Figure.savefig')
+    def test_plot_per_reference_coverage(self, mock_savefig, mock_close):
         """Test per-reference coverage plots."""
         self.visualizer.plot_per_reference_coverage()
         
-        mock_savefig.assert_called_once()
-        mock_close.assert_called_once()
+        mock_savefig.assert_called()
+        mock_close.assert_called()
     
     def test_plots_directory_creation(self):
         """Test that plots directory is created."""

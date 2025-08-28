@@ -1,7 +1,9 @@
 # baitUtils
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/FOI-Bioinformatics/baitUtils/workflows/CI/badge.svg)](https://github.com/FOI-Bioinformatics/baitUtils/actions)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![codecov](https://codecov.io/gh/FOI-Bioinformatics/baitUtils/branch/main/graph/badge.svg)](https://codecov.io/gh/FOI-Bioinformatics/baitUtils)
 
 **Comprehensive toolkit for oligo/bait design, evaluation, and comparative analysis with advanced coverage assessment and interactive reporting.**
 

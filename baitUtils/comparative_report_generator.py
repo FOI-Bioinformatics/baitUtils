@@ -334,12 +334,12 @@ class ComparativeReportGenerator:
         
         <div class="metric-card">
             <h4>Top Quality Grade</h4>
-            <div class="value grade-{best_performer.quality_score.grade.lower()}">{best_performer.quality_score.grade}</div>
+            <div class="value grade-{best_performer.quality_score.category.value.lower()}">{best_performer.quality_score.category.value}</div>
         </div>
         
         <h3>🎯 Key Findings</h3>
         <ul>
-            <li><strong>{best_performer.name}</strong> achieved the highest overall quality score ({best_performer.quality_score.overall_score:.1f}/10, Grade {best_performer.quality_score.grade})</li>
+            <li><strong>{best_performer.name}</strong> achieved the highest overall quality score ({best_performer.quality_score.overall_score:.1f}/10, Grade {best_performer.quality_score.category.value})</li>
             <li>Coverage breadth ranges from {min(result.coverage_stats.get('coverage_breadth', 0) for result in self.analyzer.oligo_sets):.1f}% to {max(result.coverage_stats.get('coverage_breadth', 0) for result in self.analyzer.oligo_sets):.1f}%</li>
             <li>Gap counts vary from {min(result.gap_analysis.get('total_gaps', 0) for result in self.analyzer.oligo_sets):,} to {max(result.gap_analysis.get('total_gaps', 0) for result in self.analyzer.oligo_sets):,} gaps</li>
             <li>Mapping efficiency ranges from {min(result.coverage_stats.get('mapping_efficiency', 0) for result in self.analyzer.oligo_sets):.1f}% to {max(result.coverage_stats.get('mapping_efficiency', 0) for result in self.analyzer.oligo_sets):.1f}%</li>
@@ -351,8 +351,8 @@ class ComparativeReportGenerator:
         
         for i, (name, score) in enumerate(ranking[:5], 1):  # Top 5
             oligo_set = next(result for result in self.analyzer.oligo_sets if result.name == name)
-            grade_class = f"grade-{oligo_set.quality_score.grade.lower()}"
-            summary += f'<li><strong>{name}</strong> (Score: {score:.2f}, Grade: <span class="{grade_class}">{oligo_set.quality_score.grade}</span>)</li>'
+            grade_class = f"grade-{oligo_set.quality_score.category.value.lower()}"
+            summary += f'<li><strong>{name}</strong> (Score: {score:.2f}, Grade: <span class="{grade_class}">{oligo_set.quality_score.category.value}</span>)</li>'
         
         if len(ranking) > 5:
             summary += f'<li><em>...and {len(ranking) - 5} more</em></li>'
@@ -439,7 +439,7 @@ class ComparativeReportGenerator:
         for i, (name, score) in enumerate(ranking, 1):
             # Find corresponding oligo set for quality grade
             oligo_set = next(result for result in self.analyzer.oligo_sets if result.name == name)
-            grade_class = f"grade-{oligo_set.quality_score.grade.lower()}"
+            grade_class = f"grade-{oligo_set.quality_score.category.value.lower()}"
             
             # Color based on ranking
             if i == 1:
@@ -455,7 +455,7 @@ class ComparativeReportGenerator:
             <div class="metric-card" style="background: {bg_color}; color: #333;">
                 <h4>#{i} {name}</h4>
                 <div class="value">{score:.2f}</div>
-                <div>Grade: <span class="{grade_class}">{oligo_set.quality_score.grade}</span></div>
+                <div>Grade: <span class="{grade_class}">{oligo_set.quality_score.category.value}</span></div>
             </div>
             """
         
@@ -652,7 +652,7 @@ class ComparativeReportGenerator:
             <h3>🥇 Primary Recommendation</h3>
             <p><strong>Select {best_performer.name}</strong> as your primary oligo set based on its superior overall performance:</p>
             <ul>
-                <li>Highest quality score: {best_performer.quality_score.overall_score:.1f}/10 (Grade {best_performer.quality_score.grade})</li>
+                <li>Highest quality score: {best_performer.quality_score.overall_score:.1f}/10 (Grade {best_performer.quality_score.category.value})</li>
                 <li>Coverage breadth: {best_performer.coverage_stats.get('coverage_breadth', 0):.1f}%</li>
                 <li>Gap count: {best_performer.gap_analysis.get('total_gaps', 0):,}</li>
                 <li>Mapping efficiency: {best_performer.coverage_stats.get('mapping_efficiency', 0):.1f}%</li>
@@ -672,7 +672,7 @@ class ComparativeReportGenerator:
                 <ul>
                     <li>Cost or availability constraints affect the primary choice</li>
                     <li>Specific design requirements favor this approach</li>
-                    <li>Quality score: {second_best_result.quality_score.overall_score:.1f}/10 (Grade {second_best_result.quality_score.grade})</li>
+                    <li>Quality score: {second_best_result.quality_score.overall_score:.1f}/10 (Grade {second_best_result.quality_score.category.value})</li>
                 </ul>
             </div>
             """

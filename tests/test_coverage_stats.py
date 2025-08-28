@@ -90,10 +90,10 @@ class TestCoverageStatsCalculations(unittest.TestCase):
         # Check chr1 coverage
         chr1_cov = self.analyzer.coverage_arrays['chr1']
         
-        # Position 0-120: oligo1 (depth 1)
-        self.assertTrue(np.all(chr1_cov[0:120] == 1))
+        # Position 0-50: oligo1 only (depth 1)
+        self.assertTrue(np.all(chr1_cov[0:50] == 1))
         
-        # Position 50-120: oligo1 + oligo5 overlap (depth 2)
+        # Position 50-120: oligo1 + oligo5 overlap (depth 2) 
         self.assertTrue(np.all(chr1_cov[50:120] == 2))
         
         # Position 120-170: only oligo5 (depth 1)
