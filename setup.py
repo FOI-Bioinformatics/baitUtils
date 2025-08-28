@@ -19,6 +19,7 @@ setup(
         'plotly>=5.0.0',
         'scipy>=1.7.0',
         'pybedtools>=0.9.0',
+        'tqdm>=4.60.0',
     ],
     entry_points={
         'console_scripts': [
