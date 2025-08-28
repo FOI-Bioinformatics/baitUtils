@@ -201,7 +201,7 @@ class ComparativeAnalyzer:
                 'Mapping_Efficiency_%': result.coverage_stats.get('mapping_efficiency', 0),
                 'Gini_Coefficient': result.coverage_stats.get('gini_coefficient', 0),
                 'Quality_Score': result.quality_score.overall_score,
-                'Quality_Grade': result.quality_score.grade,
+                'Quality_Grade': result.quality_score.category.value,
                 'Total_Oligos': result.coverage_stats.get('total_oligos', 0),
                 'Mapped_Oligos': result.coverage_stats.get('mapped_oligos', 0),
             }

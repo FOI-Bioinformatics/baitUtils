@@ -539,7 +539,7 @@ def print_summary(coverage_stats: Dict, gap_analysis: Dict, quality_score=None) 
     
     if quality_score is not None:
         print(f"Overall Quality:      {quality_score.overall_score:6.1f}/10")
-        print(f"Quality Grade:        {quality_score.grade:>6s}")
+        print(f"Quality Grade:        {quality_score.category.value:>6s}")
     
     print("="*60)
 

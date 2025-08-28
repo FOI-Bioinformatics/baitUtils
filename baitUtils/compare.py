@@ -310,7 +310,7 @@ def print_summary(analyzer: ComparativeAnalyzer, comparison_matrix, plots: Dict[
     
     print(f"Oligo Sets Compared:    {len(analyzer.oligo_sets)}")
     print(f"Best Performer:         {best_performer.name}")
-    print(f"Top Quality Score:      {best_performer.quality_score.overall_score:.1f}/10 (Grade {best_performer.quality_score.grade})")
+    print(f"Top Quality Score:      {best_performer.quality_score.overall_score:.1f}/10 (Grade {best_performer.quality_score.category.value})")
     
     # Coverage range
     coverage_values = [result.coverage_stats.get('coverage_breadth', 0) for result in analyzer.oligo_sets]
@@ -323,7 +323,7 @@ def print_summary(analyzer: ComparativeAnalyzer, comparison_matrix, plots: Dict[
     print("\nRanking (Top 3):")
     for i, (name, score) in enumerate(ranking[:3], 1):
         oligo_set = next(result for result in analyzer.oligo_sets if result.name == name)
-        print(f"  {i}. {name:<20} Score: {score:.2f}, Grade: {oligo_set.quality_score.grade}")
+        print(f"  {i}. {name:<20} Score: {score:.2f}, Grade: {oligo_set.quality_score.category.value}")
     
     print(f"\nResults Summary:")
     print(f"  📊 Interactive Report:   {Path(report_file).name}")

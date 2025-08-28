@@ -40,16 +40,18 @@ def create_quality_score(score, grade_letter):
         overall_score=score,
         category=category_map.get(grade_letter, QualityCategory.FAIR),
         component_scores={
-            'coverage_score': score,
-            'depth_score': score,
-            'gap_score': score,
-            'mapping_score': score
+            'coverage_breadth': score,
+            'coverage_depth': score,
+            'gap_characteristics': score,
+            'mapping_efficiency': score,
+            'reference_difficulty': score
         },
         weighted_scores={
-            'coverage_score': score,
-            'depth_score': score,
-            'gap_score': score,
-            'mapping_score': score
+            'coverage_breadth': score,
+            'coverage_depth': score,
+            'gap_characteristics': score,
+            'mapping_efficiency': score,
+            'reference_difficulty': score
         },
         benchmarks={
             'excellent_threshold': 9.0,
