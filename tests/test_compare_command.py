@@ -215,10 +215,20 @@ class TestCompareCommand(unittest.TestCase):
         mock_comp_analyzer.return_value = mock_analyzer_instance
         mock_analyzer_instance.generate_comparison_matrix.return_value = MagicMock()
         mock_analyzer_instance.generate_ranking.return_value = [('Set1', 8.0), ('Set2', 7.0)]
-        mock_analyzer_instance.identify_best_performer.return_value = MagicMock(
-            name='Set1', quality_score=MagicMock(overall_score=8.0, grade='A')
-        )
-        mock_analyzer_instance.oligo_sets = [MagicMock(name='Set1'), MagicMock(name='Set2')]
+        # Mock best performer
+        mock_best = MagicMock()
+        mock_best.name = 'Set1'
+        mock_quality_score = MagicMock()
+        mock_quality_score.overall_score = 8.0
+        mock_quality_score.category.value = 'A'
+        mock_best.quality_score = mock_quality_score
+        mock_analyzer_instance.identify_best_performer.return_value = mock_best
+        # Mock oligo sets with proper coverage data
+        mock_set1 = MagicMock(name='Set1')
+        mock_set1.coverage_stats = {'coverage_breadth': 85.0}
+        mock_set2 = MagicMock(name='Set2')
+        mock_set2.coverage_stats = {'coverage_breadth': 78.0}
+        mock_analyzer_instance.oligo_sets = [mock_set1, mock_set2]
         mock_analyzer_instance.export_comparison_data.return_value = {}
         
         # Mock visualizer

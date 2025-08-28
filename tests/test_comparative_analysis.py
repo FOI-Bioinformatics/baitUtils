@@ -446,16 +446,16 @@ class TestComparativeVisualizer(unittest.TestCase):
         self.assertTrue(self.visualizer.plots_dir.exists())
         self.assertTrue(self.visualizer.interactive_dir.exists())
     
-    @patch('plotly.graph_objects.Figure')
-    def test_create_comparison_dashboard(self, mock_figure):
+    @patch('plotly.subplots.make_subplots')
+    def test_create_comparison_dashboard(self, mock_make_subplots):
         """Test comparison dashboard creation."""
         mock_fig = MagicMock()
-        mock_figure.return_value = mock_fig
+        mock_make_subplots.return_value = mock_fig
         
         result = self.visualizer.create_comparison_dashboard(self.mock_analyzer)
         
-        # Check that figure was created and saved
-        mock_figure.assert_called()
+        # Check that subplots were created and figure was saved
+        mock_make_subplots.assert_called()
         mock_fig.write_html.assert_called_once()
         
         # Check return value

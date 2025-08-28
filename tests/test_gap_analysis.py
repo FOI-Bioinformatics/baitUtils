@@ -119,7 +119,7 @@ class TestSequenceFeatureAnalysis(unittest.TestCase):
         # Long homopolymer
         long_homo = "ATGCCCCCCCCCGAT"
         max_run = self.analyzer._find_max_homopolymer(long_homo)
-        self.assertEqual(max_run, 10)
+        self.assertEqual(max_run, 9)  # 9 consecutive C's
         
         # Homopolymer at start
         start_homo = "AAAAATGC"

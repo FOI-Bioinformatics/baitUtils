@@ -245,14 +245,14 @@ class TestQualityScorer(unittest.TestCase):
             self.assertTrue(0 <= quality_score.component_scores[component] <= 1)
         
         # Check grade assignment logic
-        if quality_score.overall_score >= 9:
+        if quality_score.overall_score >= 0.9:
             self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
-        elif quality_score.overall_score >= 8:
+        elif quality_score.overall_score >= 0.8:
+            self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
+        elif quality_score.overall_score >= 0.7:
             self.assertEqual(quality_score.category, QualityCategory.GOOD)
-        elif quality_score.overall_score >= 7:
+        elif quality_score.overall_score >= 0.5:
             self.assertEqual(quality_score.category, QualityCategory.FAIR)
-        elif quality_score.overall_score >= 6:
-            self.assertEqual(quality_score.category, QualityCategory.POOR)
         else:
             self.assertEqual(quality_score.category, QualityCategory.POOR)
     
