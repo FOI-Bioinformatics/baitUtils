@@ -224,10 +224,14 @@ class TestCompareCommand(unittest.TestCase):
         mock_best.quality_score = mock_quality_score
         mock_analyzer_instance.identify_best_performer.return_value = mock_best
         # Mock oligo sets with proper coverage data
-        mock_set1 = MagicMock(name='Set1')
+        mock_set1 = MagicMock()
+        mock_set1.name = 'Set1'
         mock_set1.coverage_stats = {'coverage_breadth': 85.0}
-        mock_set2 = MagicMock(name='Set2')
+        mock_set1.gap_analysis = {'total_gaps': 15}
+        mock_set2 = MagicMock()
+        mock_set2.name = 'Set2'
         mock_set2.coverage_stats = {'coverage_breadth': 78.0}
+        mock_set2.gap_analysis = {'total_gaps': 25}
         mock_analyzer_instance.oligo_sets = [mock_set1, mock_set2]
         mock_analyzer_instance.export_comparison_data.return_value = {}
         
