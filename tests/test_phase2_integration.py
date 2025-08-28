@@ -91,7 +91,8 @@ class TestReferenceAnalyzer(unittest.TestCase):
         mock_record2.seq = "GCTAGCTAGCTA" * 50
         mock_seqio.parse.return_value = [mock_record1, mock_record2]
         
-        analyzer = ReferenceAnalyzer(self.ref_file, window_size=100)
+        coverage_data = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
+        analyzer = ReferenceAnalyzer(self.ref_file, coverage_data, window_size=100)
         results = analyzer.analyze()
         
         # Check results structure
@@ -106,7 +107,8 @@ class TestReferenceAnalyzer(unittest.TestCase):
     
     def test_calculate_sequence_features(self):
         """Test sequence feature calculations."""
-        analyzer = ReferenceAnalyzer(self.ref_file)
+        coverage_data = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
+        analyzer = ReferenceAnalyzer(self.ref_file, coverage_data)
         
         test_seq = "ATCGATCGATCGAAAAAATTTTTCCCCCGGGGG"
         features = analyzer._calculate_sequence_features(test_seq)
@@ -186,11 +188,11 @@ class TestQualityScorer(unittest.TestCase):
         
         # Test depth uniformity scoring
         depth_score = scorer._score_coverage_depth()
-        self.assertTrue(0 <= depth_score <= 10)
+        self.assertTrue(0 <= depth_score <= 1)
         
         # Test gap scoring
-        gap_score = scorer._score_gap_analysis()
-        self.assertTrue(0 <= gap_score <= 10)
+        gap_score = scorer._score_gap_characteristics()
+        self.assertTrue(0 <= gap_score <= 1)
 
 
 class TestBenchmarkAnalyzer(unittest.TestCase):
@@ -319,11 +321,9 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         generator = InteractiveReportGenerator(
             self.coverage_stats,
             self.gap_analysis,
-            self.reference_analysis,
             self.quality_score,
-            self.output_dir,
-            "oligos.fasta",
-            "reference.fasta"
+            self.reference_analysis,
+            self.test_dir
         )
         
         # Test report generation doesn't crash
@@ -337,11 +337,9 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         generator = InteractiveReportGenerator(
             self.coverage_stats,
             self.gap_analysis,
-            self.reference_analysis,
             self.quality_score,
-            self.output_dir,
-            "oligos.fasta", 
-            "reference.fasta"
+            self.reference_analysis,
+            self.test_dir
         )
         
         html_content = generator._generate_html_content()

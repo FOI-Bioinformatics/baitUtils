@@ -425,7 +425,7 @@ class TestComparativeVisualizer(unittest.TestCase):
         self.mock_analyzer.generate_comparison_matrix.return_value = pd.DataFrame({
             'Name': ['Set1', 'Set2'],
             'Quality_Score': [7.5, 8.8],
-            'Quality_Grade': ['B', 'A'],
+            'Quality_Grade': ['Good', 'Excellent'],
             'Coverage_Breadth_%': [80.0, 90.0],
             'Mean_Depth_x': [8.0, 12.0],
             'Total_Gaps': [30, 15],
@@ -556,7 +556,12 @@ class TestComparativeReportGenerator(unittest.TestCase):
         self.mock_analyzer.generate_comparison_matrix.return_value = pd.DataFrame({
             'Name': ['Set1', 'Set2'],
             'Quality_Score': [7.5, 8.8],
-            'Quality_Grade': ['B', 'A']
+            'Quality_Grade': ['Good', 'Excellent'],
+            'Coverage_Breadth_%': [80.0, 90.0],
+            'Mean_Depth_x': [8.0, 12.0],
+            'Total_Gaps': [30, 15],
+            'Mapping_Efficiency_%': [0.0, 0.0],
+            'Gini_Coefficient': [0.3, 0.2]
         })
         
         self.mock_analyzer.generate_ranking.return_value = [('Set2', 8.5), ('Set1', 7.2)]
