@@ -154,7 +154,7 @@ jobs:
         python -m baitUtils stats -i test_data/test_sequences.fasta -o test_output/
         ls -la test_output/
         test -f test_output/sequence_statistics.tsv
-        
+
     - name: Test plot command (basic)
       run: |
         python -m baitUtils plot -i test_output/sequence_statistics.tsv -o test_plots/
@@ -203,11 +203,6 @@ jobs:
         test -f README.md
         echo "✓ README.md exists"
 
-    - name: Check CLAUDE.md is up to date
-      run: |
-        test -f CLAUDE.md
-        echo "✓ CLAUDE.md exists"
-
     - name: Check CONTRIBUTING.md exists
       run: |
         test -f CONTRIBUTING.md
@@ -219,7 +214,7 @@ jobs:
         import os
         required_files = [
             'baitUtils/__init__.py',
-            'baitUtils/__main__.py', 
+            'baitUtils/__main__.py',
             'baitUtils/_version.py',
             'setup.py',
             'requirements.txt'
