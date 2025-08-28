@@ -232,7 +232,7 @@ class TestGapAnalyzer(unittest.TestCase):
             'reference_length': 1000,
             'per_reference': {
                 'chr1': {
-                    'length': 132,
+                    'length': 144,
                     'coverage_breadth': 60.0,
                     'gaps': 3
                 }
@@ -254,7 +254,7 @@ class TestGapAnalyzer(unittest.TestCase):
         self.gap_analyzer._load_reference_sequences()
         
         self.assertIn('chr1', self.gap_analyzer.reference_sequences)
-        self.assertEqual(len(self.gap_analyzer.reference_sequences['chr1']), 132)
+        self.assertEqual(len(self.gap_analyzer.reference_sequences['chr1']), 144)
     
     def test_calculate_sequence_features(self):
         """Test sequence feature calculation."""

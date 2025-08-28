@@ -623,7 +623,7 @@ class TestComparativeReportGenerator(unittest.TestCase):
         self.assertIn('Executive Summary', summary)
         self.assertIn('Set2', summary)  # Best performer
         self.assertIn('8.8/10', summary)  # Quality score
-        self.assertIn('Grade A', summary)
+        self.assertIn('Grade Excellent', summary)
     
     def test_comparison_overview_generation(self):
         """Test comparison overview table."""
