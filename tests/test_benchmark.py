@@ -15,7 +15,7 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from baitUtils.benchmark import BenchmarkAnalyzer, TheoreticalOptimal, BenchmarkResult
-from baitUtils.quality_scorer import QualityScore
+from baitUtils.quality_scorer import QualityScore, QualityCategory
 
 
 class TestBenchmarkAnalyzer(unittest.TestCase):
@@ -50,13 +50,25 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         
         self.quality_score = QualityScore(
             overall_score=7.1,
-            grade='B',
+            category=QualityCategory.GOOD,
             component_scores={
                 'coverage_score': 7.5,
                 'depth_uniformity_score': 6.5,
                 'gap_score': 6.8,
                 'mapping_efficiency_score': 8.8
-            }
+            },
+            weighted_scores={
+                'coverage_score': 7.5,
+                'depth_uniformity_score': 6.5,
+                'gap_score': 6.8,
+                'mapping_efficiency_score': 8.8
+            },
+            benchmarks={
+                'excellent_threshold': 9.0,
+                'good_threshold': 7.0,
+                'fair_threshold': 5.0
+            },
+            recommendations=["Consider optimizing coverage distribution", "Review gap filling strategy"]
         )
         
         self.analyzer = BenchmarkAnalyzer(
@@ -228,13 +240,25 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         # Test with low component scores
         low_score_quality = QualityScore(
             overall_score=5.0,
-            grade='D',
+            category=QualityCategory.POOR,
             component_scores={
                 'coverage_score': 6.0,
                 'depth_uniformity_score': 5.0,
                 'gap_score': 4.0,
                 'mapping_efficiency_score': 6.0
-            }
+            },
+            weighted_scores={
+                'coverage_score': 6.0,
+                'depth_uniformity_score': 5.0,
+                'gap_score': 4.0,
+                'mapping_efficiency_score': 6.0
+            },
+            benchmarks={
+                'excellent_threshold': 9.0,
+                'good_threshold': 7.0,
+                'fair_threshold': 5.0
+            },
+            recommendations=["Improve overall coverage", "Optimize depth distribution"]
         )
         
         low_analyzer = BenchmarkAnalyzer(
@@ -282,7 +306,14 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
             perfect_coverage,
             zero_gap_analysis,
             self.reference_analysis,
-            QualityScore(10.0, 'A', {})
+            QualityScore(
+                overall_score=10.0,
+                category=QualityCategory.EXCELLENT,
+                component_scores={},
+                weighted_scores={},
+                benchmarks={'excellent_threshold': 9.0},
+                recommendations=[]
+            )
         )
         
         benchmarks = perfect_analyzer.run_full_benchmark()
