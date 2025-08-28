@@ -1,3 +1,5 @@
 # baitUtils/__init__.py
 
-# This file can be left empty or include package-level imports
+from baitUtils._version import __version__
+
+__all__ = ['__version__']
