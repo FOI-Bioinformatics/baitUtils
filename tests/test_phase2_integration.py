@@ -19,10 +19,43 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from baitUtils.reference_analyzer import ReferenceAnalyzer
-from baitUtils.quality_scorer import QualityScorer, QualityScore
+from baitUtils.quality_scorer import QualityScorer, QualityScore, QualityCategory
 from baitUtils.report_generator import InteractiveReportGenerator
 from baitUtils.interactive_plots import InteractivePlotter
 from baitUtils.benchmark import BenchmarkAnalyzer, TheoreticalOptimal, BenchmarkResult
+
+
+def create_quality_score(score, grade_letter):
+    """Helper function to create QualityScore instances with proper API."""
+    category_map = {
+        'A': QualityCategory.EXCELLENT,
+        'B': QualityCategory.GOOD,
+        'C': QualityCategory.FAIR,
+        'D': QualityCategory.POOR
+    }
+    
+    return QualityScore(
+        overall_score=score,
+        category=category_map.get(grade_letter, QualityCategory.FAIR),
+        component_scores={
+            'coverage_score': score,
+            'depth_score': score,
+            'gap_score': score,
+            'mapping_score': score
+        },
+        weighted_scores={
+            'coverage_score': score,
+            'depth_score': score,
+            'gap_score': score,
+            'mapping_score': score
+        },
+        benchmarks={
+            'excellent_threshold': 9.0,
+            'good_threshold': 7.0,
+            'fair_threshold': 5.0
+        },
+        recommendations=[]
+    )
 
 
 class TestReferenceAnalyzer(unittest.TestCase):
@@ -186,11 +219,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
             ]
         }
         
-        self.quality_score = QualityScore(
-            overall_score=7.2,
-            grade='B',
-            component_scores={'coverage_score': 7.8, 'depth_uniformity_score': 6.5}
-        )
+        self.quality_score = create_quality_score(7.2, 'B')
     
     def test_theoretical_optimal_calculation(self):
         """Test theoretical optimal metrics calculation."""
@@ -276,7 +305,7 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         self.coverage_stats = {'coverage_breadth': 85.0, 'mean_depth': 10.5}
         self.gap_analysis = {'total_gaps': 20}
         self.reference_analysis = {'total_length': 10000}
-        self.quality_score = QualityScore(8.5, 'A', {})
+        self.quality_score = create_quality_score(8.5, 'A')
     
     def tearDown(self):
         """Clean up test fixtures."""
@@ -348,7 +377,7 @@ class TestInteractivePlotter(unittest.TestCase):
             ]
         }
         self.reference_analysis = {'total_length': 10000}
-        self.quality_score = QualityScore(7.8, 'B', {})
+        self.quality_score = create_quality_score(7.8, 'B')
     
     def tearDown(self):
         """Clean up test fixtures."""

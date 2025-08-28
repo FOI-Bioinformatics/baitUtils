@@ -24,7 +24,40 @@ from baitUtils.comparative_analyzer import ComparativeAnalyzer, OligoSetResult, 
 from baitUtils.differential_analysis import DifferentialAnalyzer, StatisticalTest, CoverageDistributionComparison
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
-from baitUtils.quality_scorer import QualityScore
+from baitUtils.quality_scorer import QualityScore, QualityCategory
+
+
+def create_quality_score(score, grade_letter):
+    """Helper function to create QualityScore instances with proper API."""
+    category_map = {
+        'A': QualityCategory.EXCELLENT,
+        'B': QualityCategory.GOOD,
+        'C': QualityCategory.FAIR,
+        'D': QualityCategory.POOR
+    }
+    
+    return QualityScore(
+        overall_score=score,
+        category=category_map.get(grade_letter, QualityCategory.FAIR),
+        component_scores={
+            'coverage_score': score,
+            'depth_score': score,
+            'gap_score': score,
+            'mapping_score': score
+        },
+        weighted_scores={
+            'coverage_score': score,
+            'depth_score': score,
+            'gap_score': score,
+            'mapping_score': score
+        },
+        benchmarks={
+            'excellent_threshold': 9.0,
+            'good_threshold': 7.0,
+            'fair_threshold': 5.0
+        },
+        recommendations=[]
+    )
 
 
 class TestComparativeAnalyzer(unittest.TestCase):
@@ -98,7 +131,7 @@ class TestComparativeAnalyzer(unittest.TestCase):
             'challenging_regions': []
         }
         
-        mock_quality.return_value.calculate_score.return_value = QualityScore(
+        mock_quality.return_value.calculate_score.return_value = create_quality_score(
             8.5, 'A', {'coverage_score': 8.5}
         )
         
@@ -120,7 +153,7 @@ class TestComparativeAnalyzer(unittest.TestCase):
                 file_path='set1.fasta',
                 coverage_stats={'coverage_breadth': 80.0, 'mean_depth': 8.0, 'mapping_efficiency': 85.0},
                 gap_analysis={'total_gaps': 30, 'max_gap_size': 500},
-                quality_score=QualityScore(7.5, 'B', {}),
+                quality_score=create_quality_score(7.5, 'B'),
                 benchmark_results={}
             ),
             OligoSetResult(
@@ -128,7 +161,7 @@ class TestComparativeAnalyzer(unittest.TestCase):
                 file_path='set2.fasta',
                 coverage_stats={'coverage_breadth': 90.0, 'mean_depth': 12.0, 'mapping_efficiency': 92.0},
                 gap_analysis={'total_gaps': 15, 'max_gap_size': 300},
-                quality_score=QualityScore(8.8, 'A', {}),
+                quality_score=create_quality_score(8.8, 'A'),
                 benchmark_results={}
             )
         ]
@@ -154,14 +187,14 @@ class TestComparativeAnalyzer(unittest.TestCase):
                 file_path='set1.fasta',
                 coverage_stats={'coverage_breadth': 80.0, 'mean_depth': 8.0},
                 gap_analysis={'total_gaps': 30},
-                quality_score=QualityScore(7.5, 'B', {})
+                quality_score=create_quality_score(7.5, 'B')
             ),
             OligoSetResult(
                 name='Set2',
                 file_path='set2.fasta', 
                 coverage_stats={'coverage_breadth': 90.0, 'mean_depth': 12.0},
                 gap_analysis={'total_gaps': 15},
-                quality_score=QualityScore(8.8, 'A', {})
+                quality_score=create_quality_score(8.8, 'A')
             )
         ]
         
@@ -189,14 +222,14 @@ class TestComparativeAnalyzer(unittest.TestCase):
                 file_path='set1.fasta',
                 coverage_stats={'coverage_breadth': 80.0},
                 gap_analysis={'total_gaps': 30},
-                quality_score=QualityScore(7.5, 'B', {})
+                quality_score=create_quality_score(7.5, 'B')
             ),
             OligoSetResult(
                 name='Set2',
                 file_path='set2.fasta',
                 coverage_stats={'coverage_breadth': 90.0},
                 gap_analysis={'total_gaps': 15},
-                quality_score=QualityScore(8.8, 'A', {})
+                quality_score=create_quality_score(8.8, 'A')
             )
         ]
         
@@ -221,14 +254,14 @@ class TestComparativeAnalyzer(unittest.TestCase):
                 file_path='set1.fasta',
                 coverage_stats={'coverage_breadth': 80.0, 'mapping_efficiency': 85.0},
                 gap_analysis={'total_gaps': 30},
-                quality_score=QualityScore(7.5, 'B', {})
+                quality_score=create_quality_score(7.5, 'B')
             ),
             OligoSetResult(
                 name='Set2',
                 file_path='set2.fasta',
                 coverage_stats={'coverage_breadth': 90.0, 'mapping_efficiency': 92.0},
                 gap_analysis={'total_gaps': 15},
-                quality_score=QualityScore(8.8, 'A', {})
+                quality_score=create_quality_score(8.8, 'A')
             )
         ]
         
@@ -263,7 +296,7 @@ class TestDifferentialAnalyzer(unittest.TestCase):
                 'reference_length': 10000
             },
             gap_analysis={'total_gaps': 30, 'gaps': []},
-            quality_score=QualityScore(7.5, 'B', {})
+            quality_score=create_quality_score(7.5, 'B')
         )
         
         self.mock_set2 = OligoSetResult(
@@ -277,7 +310,7 @@ class TestDifferentialAnalyzer(unittest.TestCase):
                 'reference_length': 10000
             },
             gap_analysis={'total_gaps': 15, 'gaps': []},
-            quality_score=QualityScore(8.8, 'A', {})
+            quality_score=create_quality_score(8.8, 'A')
         )
     
     def test_init(self):
@@ -377,14 +410,14 @@ class TestComparativeVisualizer(unittest.TestCase):
                 file_path='set1.fasta',
                 coverage_stats={'coverage_breadth': 80.0, 'mean_depth': 8.0, 'mapping_efficiency': 85.0},
                 gap_analysis={'total_gaps': 30, 'max_gap_size': 500, 'gap_percentage': 20.0},
-                quality_score=QualityScore(7.5, 'B', {})
+                quality_score=create_quality_score(7.5, 'B')
             ),
             OligoSetResult(
                 name='Set2',
                 file_path='set2.fasta',
                 coverage_stats={'coverage_breadth': 90.0, 'mean_depth': 12.0, 'mapping_efficiency': 92.0},
                 gap_analysis={'total_gaps': 15, 'max_gap_size': 300, 'gap_percentage': 10.0},
-                quality_score=QualityScore(8.8, 'A', {})
+                quality_score=create_quality_score(8.8, 'A')
             )
         ]
         
@@ -509,14 +542,14 @@ class TestComparativeReportGenerator(unittest.TestCase):
                 file_path='set1.fasta',
                 coverage_stats={'coverage_breadth': 80.0, 'mean_depth': 8.0},
                 gap_analysis={'total_gaps': 30},
-                quality_score=QualityScore(7.5, 'B', {})
+                quality_score=create_quality_score(7.5, 'B')
             ),
             OligoSetResult(
                 name='Set2',
                 file_path='set2.fasta',
                 coverage_stats={'coverage_breadth': 90.0, 'mean_depth': 12.0},
                 gap_analysis={'total_gaps': 15},
-                quality_score=QualityScore(8.8, 'A', {})
+                quality_score=create_quality_score(8.8, 'A')
             )
         ]
         

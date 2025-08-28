@@ -13,7 +13,40 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from baitUtils.quality_scorer import QualityScorer, QualityScore
+from baitUtils.quality_scorer import QualityScorer, QualityScore, QualityCategory
+
+
+def create_quality_score(score, grade_letter):
+    """Helper function to create QualityScore instances with proper API."""
+    category_map = {
+        'A': QualityCategory.EXCELLENT,
+        'B': QualityCategory.GOOD,
+        'C': QualityCategory.FAIR,
+        'D': QualityCategory.POOR
+    }
+    
+    return QualityScore(
+        overall_score=score,
+        category=category_map.get(grade_letter, QualityCategory.FAIR),
+        component_scores={
+            'coverage_score': score,
+            'depth_score': score,
+            'gap_score': score,
+            'mapping_score': score
+        },
+        weighted_scores={
+            'coverage_score': score,
+            'depth_score': score,
+            'gap_score': score,
+            'mapping_score': score
+        },
+        benchmarks={
+            'excellent_threshold': 9.0,
+            'good_threshold': 7.0,
+            'fair_threshold': 5.0
+        },
+        recommendations=[]
+    )
 
 
 class TestQualityScorer(unittest.TestCase):
@@ -324,27 +357,19 @@ class TestQualityScore(unittest.TestCase):
             'mapping_efficiency_score': 9.1
         }
         
-        quality_score = QualityScore(
-            overall_score=7.8,
-            grade='B',
-            component_scores=component_scores
-        )
+        quality_score = create_quality_score(7.8, 'B')
         
         self.assertEqual(quality_score.overall_score, 7.8)
-        self.assertEqual(quality_score.grade, 'B')
-        self.assertEqual(quality_score.component_scores, component_scores)
+        self.assertEqual(quality_score.category, QualityCategory.GOOD)
+        self.assertIn('coverage_score', quality_score.component_scores)
     
     def test_quality_score_string_representation(self):
         """Test QualityScore string representation."""
-        quality_score = QualityScore(
-            overall_score=8.5,
-            grade='A',
-            component_scores={'coverage_score': 9.0}
-        )
+        quality_score = create_quality_score(8.5, 'A')
         
         str_repr = str(quality_score)
         self.assertIn('8.5', str_repr)
-        self.assertIn('A', str_repr)
+        self.assertIn('EXCELLENT', str_repr)
 
 
 if __name__ == '__main__':
