@@ -150,6 +150,14 @@ class TestCheckAndFill:
         assert ("chrA", 2940, 3000) in regions
         assert ("chrB", 1920, 2000) in regions
 
+    def test_check_strand_filter(self, dataset, tmp_path, run_cli, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        uncovered = tmp_path / "unc_minus.tsv"
+        # Fixture hits are all plus strand: restricting to minus leaves nothing mapped
+        with pytest.raises(SystemExit):
+            run_cli(["check", "--alignments", dataset["psl"], "--reference", dataset["reference"],
+                     "--strand", "minus", "--longest_uncovered_out", uncovered])
+
     def test_fill_selects_oligos(self, dataset, tmp_path, run_cli, monkeypatch):
         monkeypatch.chdir(tmp_path)
         selected = tmp_path / "selected.txt"

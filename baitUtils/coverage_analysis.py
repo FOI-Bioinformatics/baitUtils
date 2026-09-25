@@ -75,7 +75,8 @@ class PSLParser:
         min_length: int,
         min_similarity: float,
         temp_dir: Optional[Path] = None,
-        basename: str = "temp_fill.bed"
+        basename: str = "temp_fill.bed",
+        strand: str = "both"
     ) -> Any:
         """
         Write one BED row per aligned block for hits with aligned length >= min_length
@@ -84,7 +85,7 @@ class PSLParser:
         temp_bed = basename if temp_dir is None else str(temp_dir / basename)
         kept = 0
         with open(temp_bed, "w") as f:
-            for hit in filter_hits(parse_alignments(psl_path), min_similarity, min_length):
+            for hit in filter_hits(parse_alignments(psl_path), min_similarity, min_length, strand=strand):
                 kept += 1
                 for start, end in hit.target_blocks:
                     f.write(f"{hit.t_name}\t{start}\t{end}\t{hit.q_name}\t{kept}\n")
@@ -377,12 +378,13 @@ class CoverageAnalysisOrchestrator:
         min_length: int,
         min_similarity: float,
         temp_dir: Optional[Path] = None,
-        reference_fasta: Optional[Path] = None
+        reference_fasta: Optional[Path] = None,
+        strand: str = "both"
     ) -> Tuple[Any, Dict[str, List[OligoMapping]], str]:
         """Set up the analysis by parsing PSL and creating necessary files."""
         # Parse PSL to BED
         bed = self.psl_parser.parse_psl_to_bed(
-            psl_path, min_length, min_similarity, temp_dir
+            psl_path, min_length, min_similarity, temp_dir, strand=strand
         )
         
         # Build mappings

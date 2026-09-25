@@ -328,10 +328,20 @@ def build_hit_table(hits: Iterable[PSLHit]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns).sort_values('oligo_id').reset_index(drop=True)
 
 
+STRAND_CHOICES = ("both", "plus", "minus")
+_STRAND_SYMBOL = {"plus": "+", "minus": "-"}
+
+
 def filter_hits(hits: Iterable[PSLHit], min_identity: float = 0.0, min_length: int = 0,
-                min_matches: int = 0) -> Iterator[PSLHit]:
-    """Keep hits with identity, aligned length and match count at or above the thresholds."""
+                min_matches: int = 0, strand: str = "both") -> Iterator[PSLHit]:
+    """
+    Keep hits with identity, aligned length and match count at or above the
+    thresholds; strand restricts to hits on the given target strand.
+    """
+    wanted = _STRAND_SYMBOL.get(strand)
     for hit in hits:
+        if wanted is not None and hit.strand != wanted:
+            continue
         if hit.aligned_length < min_length or hit.matches < min_matches:
             continue
         if hit.identity < min_identity:
@@ -534,7 +544,8 @@ class MappingResultsWriter:
     def write_sequences_fasta(
         sequence_ids: Set[str],
         seq_records: Dict[str, SeqIO.SeqRecord],
-        output_file: str
+        output_file: str,
+        reverse_complement: Optional[Set[str]] = None
     ) -> None:
         """
         Write selected sequences to FASTA file.
@@ -546,10 +557,15 @@ class MappingResultsWriter:
         """
         try:
             written_count = 0
+            reverse_complement = reverse_complement or set()
             with open(output_file, 'w') as f:
-                for seq_id in sequence_ids:
+                for seq_id in sorted(sequence_ids):
                     if seq_id in seq_records:
-                        SeqIO.write(seq_records[seq_id], f, 'fasta')
+                        record = seq_records[seq_id]
+                        if seq_id in reverse_complement:
+                            record = record.reverse_complement(id=record.id, name=record.name,
+                                                               description=f"{record.description} reverse_complemented")
+                        SeqIO.write(record, f, 'fasta')
                         written_count += 1
                     else:
                         logging.warning(f"Sequence ID {seq_id} not found in records")

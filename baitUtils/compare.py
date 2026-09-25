@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import Dict, List
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
-from baitUtils.json_export import write_json
+from baitUtils.json_export import write_json, tool_versions, arguments_record
 from baitUtils.mapping_utils import check_mapper_available
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
@@ -55,6 +56,12 @@ def add_arguments(parser):
         choices=['pblat', 'minimap2'],
         default='pblat',
         help='Mapping tool (default: pblat). minimap2 is run with -c and the chosen preset'
+    )
+    parser.add_argument(
+        '--strand',
+        choices=['both', 'plus', 'minus'],
+        default='both',
+        help='Count hits on both strands, or only plus or minus strand hits (default: both)'
     )
     parser.add_argument(
         '--minimap2-preset',
@@ -167,7 +174,8 @@ def main(args):
         target_coverage=args.target_coverage,
         threads=args.threads,
         mapper=args.mapper,
-        minimap2_preset=args.minimap2_preset
+        minimap2_preset=args.minimap2_preset,
+        strand=args.strand
     )
     
     # Add each oligo set for analysis
@@ -221,6 +229,8 @@ def main(args):
             statistics['bait_identity'] = differential_analyzer.compare_oligo_identity(first, second)
             statistics['gap_sizes'] = differential_analyzer.analyze_gap_patterns(first, second)
     json_file = write_json({
+        'versions': tool_versions(),
+        'arguments': arguments_record(args),
         'reference': str(args.reference),
         'parameters': {
             'min_identity': args.min_identity, 'min_length': args.min_length,
@@ -248,20 +258,8 @@ def main(args):
 
 
 def setup_logging(enable_debug: bool, quiet: bool) -> None:
-    """Configure logging settings."""
-    if quiet:
-        level = logging.WARNING
-    elif enable_debug:
-        level = logging.DEBUG
-    else:
-        level = logging.INFO
-    
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s %(levelname)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
+    """Configure logging (kept for direct calls of main)."""
+    ensure_logging(verbose=enable_debug, quiet=quiet)
 
 def validate_inputs(args) -> None:
     """Validate input files and parameters."""

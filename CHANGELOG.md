@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.0 (2026-09-25)
+
+### Added
+
+- `--strand {both,plus,minus}` on `evaluate`, `compare`, `check` and `fill`
+  restricts hits to one target strand; coverage statistics report hit
+  counts per strand overall and per reference.
+- `map --orient-to-reference` writes mapped baits in reference orientation
+  by reverse-complementing baits whose best hit is on the minus strand.
+- `--config file.json` in front of the command name supplies option
+  defaults per command with a `common` block; command-line values win.
+- `--log-level` in front of the command name; one logging format for all
+  commands (`baitUtils.logging_utils`). `check` and `fill` accept
+  `--log-level` (the old `--log_level` spelling still works).
+- `evaluation.json` and `comparison.json` record the versions of baitUtils,
+  Python, numpy, pandas, scipy, biopython, ViennaRNA, pblat, minimap2 and
+  bedtools, and the full parsed argument set.
+- Content tests for the evaluate and compare HTML reports and interactive
+  plots, and tests for the configuration file, logging, strand handling
+  and orientation.
+
 ## 0.4.0 (2026-09-25)
 
 ### Added

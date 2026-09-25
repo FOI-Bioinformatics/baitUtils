@@ -13,6 +13,7 @@ import os
 import sys
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.mapping_utils import (
     SequenceMapper,
     SequenceLoader,
@@ -70,13 +71,8 @@ class SequenceMappingProcessor:
         logging.info("Mapping complete.")
     
     def _setup_logging(self, enable_debug: bool) -> None:
-        """Configure logging settings."""
-        log_level = logging.DEBUG if enable_debug else logging.INFO
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s %(levelname)s %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        """Configure logging."""
+        ensure_logging(verbose=enable_debug)
     
     def _load_input_data(self, args) -> tuple:
         """Load input sequences and validate target file."""
@@ -164,7 +160,12 @@ class SequenceMappingProcessor:
         if args.fasta_output in ['mapped', 'both']:
             fasta_file = os.path.join(args.outdir, f"{args.outprefix}-mapped-sequences.fa")
             logging.info(f"Writing mapped sequences to FASTA file: {fasta_file}")
-            self.results_writer.write_sequences_fasta(mapped_sequences, seq_records, fasta_file)
+            reverse = set()
+            if args.orient_to_reference and self.hit_table is not None and len(self.hit_table):
+                minus = self.hit_table.loc[self.hit_table['best_strand'] == '-', 'oligo_id']
+                reverse = set(minus) & set(mapped_sequences)
+                logging.info(f"Reverse-complementing {len(reverse)} baits whose best hit is on the minus strand")
+            self.results_writer.write_sequences_fasta(mapped_sequences, seq_records, fasta_file, reverse)
         
         if args.fasta_output in ['unmapped', 'both']:
             fasta_file = os.path.join(args.outdir, f"{args.outprefix}-unmapped-sequences.fa")
@@ -224,6 +225,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                             '(off-target filter; default: no limit)')
     
     # Output options
+    parser.add_argument('--orient-to-reference', dest='orient_to_reference', action='store_true',
+                       help='Write mapped baits in reference orientation: reverse-complement '
+                            'baits whose best hit is on the minus strand')
     parser.add_argument('--fasta-output', 
                        choices=['mapped', 'unmapped', 'both', 'none'],
                        default='mapped',

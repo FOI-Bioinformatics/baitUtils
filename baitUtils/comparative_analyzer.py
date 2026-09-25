@@ -60,7 +60,8 @@ class ComparativeAnalyzer:
     def __init__(self, reference_file: str, output_dir: Path, 
                  min_identity: float = 90.0, min_length: int = 100,
                  min_coverage: float = 1.0, target_coverage: float = 10.0,
-                 threads: int = 1, mapper: str = 'pblat', minimap2_preset: str = 'sr'):
+                 threads: int = 1, mapper: str = 'pblat', minimap2_preset: str = 'sr',
+                 strand: str = 'both'):
         """
         Initialize comparative analyzer.
         
@@ -81,6 +82,7 @@ class ComparativeAnalyzer:
         self.threads = threads
         self.mapper = mapper
         self.minimap2_preset = minimap2_preset
+        self.strand = strand
         
         self.oligo_sets: List[OligoSetResult] = []
         self.reference_analysis: Optional[Dict] = None
@@ -131,7 +133,8 @@ class ComparativeAnalyzer:
             target_coverage=self.target_coverage,
             min_identity=self.min_identity,
             min_length=self.min_length,
-            oligos_file=oligo_file
+            oligos_file=oligo_file,
+            strand=self.strand
         )
         coverage_stats = coverage_analyzer.analyze()
         
