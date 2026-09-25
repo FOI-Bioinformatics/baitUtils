@@ -409,8 +409,10 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
         f.write(f"Mapping efficiency: {coverage_stats.get('mapping_efficiency', 0):.1f}%\n\n")
         
         f.write(f"Reference length: {coverage_stats.get('reference_length', 0):,} bp\n")
+        f.write(f"N bases: {coverage_stats.get('n_bases', 0):,} bp\n")
         f.write(f"Covered bases: {coverage_stats.get('covered_bases', 0):,} bp\n")
-        f.write(f"Coverage breadth: {coverage_stats.get('coverage_breadth', 0):.1f}%\n\n")
+        f.write(f"Coverage breadth: {coverage_stats.get('coverage_breadth', 0):.1f}%\n")
+        f.write(f"Coverage breadth excluding N: {coverage_stats.get('coverage_breadth_non_n', 0):.1f}%\n\n")
         
         f.write(f"Mean coverage depth: {coverage_stats.get('mean_depth', 0):.1f}x\n")
         f.write(f"Median coverage depth: {coverage_stats.get('median_depth', 0):.1f}x\n")
@@ -419,7 +421,7 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
         f.write("=== COVERAGE DEPTH DISTRIBUTION ===\n")
         depth_dist = coverage_stats.get('depth_distribution', {})
         for threshold, percent in depth_dist.items():
-            f.write(f"Bases with ≥{threshold}x coverage: {percent:.1f}%\n")
+            f.write(f"Bases with >={threshold}x coverage: {percent:.1f}%\n")
         f.write("\n")
     
     # Gap analysis report

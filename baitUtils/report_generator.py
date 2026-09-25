@@ -218,7 +218,7 @@ class InteractiveReportGenerator:
         
         # Bar plot
         fig.add_trace(go.Bar(
-            x=[f"≥{t}x" for t in thresholds],
+            x=[f">={t}x" for t in thresholds],
             y=percentages,
             name="Coverage Distribution",
             marker_color='rgba(55, 128, 191, 0.7)',
@@ -573,7 +573,7 @@ class InteractiveReportGenerator:
                     <p>Oligos were mapped to reference sequences using pblat with specified identity and length thresholds.</p>
                     
                     <h4>Coverage Calculation</h4>
-                    <p>Coverage depth was calculated at each reference position. Coverage breadth represents the percentage of reference positions with coverage ≥ minimum threshold.</p>
+                    <p>Coverage depth was calculated at each reference position. Coverage breadth represents the percentage of reference positions with coverage >= minimum threshold.</p>
                     
                     <h4>Gap Analysis</h4>
                     <p>Coverage gaps were identified as contiguous regions with coverage below the minimum threshold. Gap features were analyzed including GC content, sequence complexity, and repetitive elements.</p>

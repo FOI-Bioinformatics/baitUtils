@@ -102,7 +102,7 @@ class CoverageVisualizer:
             ax2.set_ylabel('Percentage of Bases (%)')
             ax2.set_title('Coverage Depth Distribution', fontsize=14, fontweight='bold')
             ax2.set_xticks(range(len(thresholds)))
-            ax2.set_xticklabels([f'≥{t}x' for t in thresholds])
+            ax2.set_xticklabels([f'>={t}x' for t in thresholds])
             
             # Add value labels on bars
             for bar, pct in zip(bars, percentages):
@@ -180,7 +180,7 @@ class CoverageVisualizer:
             ax2.plot(thresholds, cumulative, 'o-', linewidth=2, markersize=8)
             ax2.fill_between(thresholds, cumulative, alpha=0.3)
             ax2.set_xlabel('Minimum Coverage Depth')
-            ax2.set_ylabel('Percentage of Bases ≥ Depth (%)')
+            ax2.set_ylabel('Percentage of Bases >= Depth (%)')
             ax2.set_title('Cumulative Coverage Distribution', fontweight='bold')
             ax2.grid(True, alpha=0.3)
             
