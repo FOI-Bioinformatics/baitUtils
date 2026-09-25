@@ -136,7 +136,7 @@ class TestCoverageStatsCalculations(unittest.TestCase):
         self.assertIn(1, depth_dist)
         self.assertIn(5, depth_dist)
         
-        # Percentage at depth ≥1 should be > 0
+        # Percentage at depth >=1 should be > 0
         self.assertGreater(depth_dist[1], 0)
         
         # Max depth should be 2 (overlap region)

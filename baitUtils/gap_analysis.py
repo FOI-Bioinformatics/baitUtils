@@ -316,7 +316,7 @@ class GapAnalyzer:
         size_distribution = {}
         for start, end in size_ranges:
             if end == float('inf'):
-                range_name = f"≥{start}"
+                range_name = f">={start}"
                 count = sum(1 for length in gap_lengths if length >= start)
             else:
                 range_name = f"{start}-{end}"

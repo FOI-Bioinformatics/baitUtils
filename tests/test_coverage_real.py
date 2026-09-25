@@ -112,3 +112,51 @@ class TestMergeUncoveredIntervals:
         from baitUtils.coverage_analysis import merge_uncovered_intervals
         regions, total = merge_uncovered_intervals([("chrA", 0, 10, 5)], 1)
         assert regions == {} and total == 0
+
+
+class TestNAwareBreadth:
+    def test_breadth_excluding_n(self, tmp_path):
+        # 1000 bp reference: 200 bp N run at 400-600, one bait covering 0-120
+        ref = tmp_path / "ref.fa"
+        ref.write_text(">chrN\n" + "ACGT" * 100 + "N" * 200 + "ACGT" * 100 + "\n")
+        psl = tmp_path / "hits.psl"
+        psl.write_text("\t".join(str(c) for c in [120, 0, 0, 0, 0, 0, 0, 0, "+", "b", 120, 0, 120,
+                                                 "chrN", 1000, 0, 120, 1, "120,", "0,", "0,"]) + "\n")
+        analyzer = CoverageAnalyzer(psl, ref, min_coverage=1.0)
+        analyzer.analyze()
+        stats = analyzer.stats
+        assert stats["n_bases"] == 200
+        assert stats["assessable_bases"] == 800
+        assert stats["coverage_breadth"] == pytest.approx(12.0)
+        assert stats["coverage_breadth_non_n"] == pytest.approx(15.0)
+        per_ref = stats["per_reference"]["chrN"]
+        assert per_ref["n_bases"] == 200
+        assert per_ref["coverage_breadth_non_n"] == pytest.approx(15.0)
+
+    def test_fixture_without_n_has_equal_breadths(self, analyzer):
+        assert analyzer.stats["n_bases"] == 0
+        assert analyzer.stats["coverage_breadth_non_n"] == pytest.approx(analyzer.stats["coverage_breadth"])
+
+
+class TestCoverageExport:
+    def test_export_writes_csv_bedgraph_and_bed(self, analyzer, tmp_path, dataset):
+        coverage_df, gaps = analyzer.export_coverage_data(tmp_path)
+        assert list(coverage_df.columns) == ["chromosome", "position", "coverage"]
+        assert len(coverage_df) == 5000
+        assert coverage_df["position"].iloc[0] == 1
+        assert coverage_df.loc[coverage_df["chromosome"] == "chrA", "coverage"].sum() == int(analyzer.coverage_arrays["chrA"].sum())
+
+        bedgraph = (tmp_path / "data" / "coverage.bedgraph").read_text().splitlines()
+        rows = [line.split("\t") for line in bedgraph]
+        # Runs are contiguous and cover each reference exactly once
+        for chrom, length in (("chrA", 3000), ("chrB", 2000)):
+            runs = [(int(s), int(e), int(d)) for c, s, e, d in rows if c == chrom]
+            assert runs[0][0] == 0 and runs[-1][1] == length
+            assert all(a[1] == b[0] for a, b in zip(runs, runs[1:]))
+            assert all(a[2] != b[2] for a, b in zip(runs, runs[1:]))
+        chrom, start, end = dataset["expected"]["hole"]
+        assert (chrom, str(start), str(end), "0") in {tuple(r) for r in rows}
+
+        bed = (tmp_path / "data" / "gap_regions.bed").read_text().splitlines()
+        assert f"{chrom}\t{start}\t{end}" in bed
+        assert len(gaps) == 3

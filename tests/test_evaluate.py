@@ -339,7 +339,7 @@ class TestCoverageVisualizer(unittest.TestCase):
             'mean_gap_size': 250.5,
             'max_gap_size': 5000,
             'gap_percentage': 12.5,
-            'size_distribution': {'100-500': 15, '500-1000': 6, '1000-5000': 3, '≥5000': 1},
+            'size_distribution': {'100-500': 15, '500-1000': 6, '1000-5000': 3, '>=5000': 1},
             'largest_gaps': [
                 {'chromosome': 'chr1', 'start': 1000, 'end': 6000, 'length': 5000},
                 {'chromosome': 'chr2', 'start': 2000, 'end': 4500, 'length': 2500}

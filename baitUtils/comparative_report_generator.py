@@ -128,7 +128,7 @@ class ComparativeReportGenerator:
         
         summary = f"""
     <div class="section">
-        <h2>📊 Executive Summary</h2>
+        <h2>Executive Summary</h2>
         
         <div class="metric-card">
             <h4>Oligo Sets Compared</h4>
@@ -150,7 +150,7 @@ class ComparativeReportGenerator:
             <div class="value grade-{best_performer.quality_score.category.value.lower()}">{best_performer.quality_score.category.value}</div>
         </div>
         
-        <h3>🎯 Key Findings</h3>
+        <h3>Key Findings</h3>
         <ul>
             <li><strong>{best_performer.name}</strong> achieved the highest overall quality score ({best_performer.quality_score.overall_score:.1f}/10, Grade {best_performer.quality_score.category.value})</li>
             <li>Coverage breadth ranges from {min(result.coverage_stats.get('coverage_breadth', 0) for result in self.analyzer.oligo_sets):.1f}% to {max(result.coverage_stats.get('coverage_breadth', 0) for result in self.analyzer.oligo_sets):.1f}%</li>
@@ -158,7 +158,7 @@ class ComparativeReportGenerator:
             <li>Mapping efficiency ranges from {min(result.coverage_stats.get('mapping_efficiency', 0) for result in self.analyzer.oligo_sets):.1f}% to {max(result.coverage_stats.get('mapping_efficiency', 0) for result in self.analyzer.oligo_sets):.1f}%</li>
         </ul>
         
-        <h3>📈 Performance Ranking</h3>
+        <h3>Performance Ranking</h3>
         <ol>
         """
         
@@ -186,7 +186,7 @@ class ComparativeReportGenerator:
         # Generate HTML table
         html = """
     <div class="section">
-        <h2>📋 Comparison Overview</h2>
+        <h2>Comparison Overview</h2>
         <p>Detailed metrics comparison across all oligo sets:</p>
         
         <table class="comparison-table">
@@ -242,7 +242,7 @@ class ComparativeReportGenerator:
         
         html = """
     <div class="section">
-        <h2>🏆 Performance Ranking</h2>
+        <h2>Performance Ranking</h2>
         <p>Oligo sets ranked by composite performance score:</p>
         
         <div style="display: flex; flex-wrap: wrap; justify-content: space-around;">
@@ -285,7 +285,7 @@ class ComparativeReportGenerator:
         
         html = """
     <div class="section">
-        <h2>🔍 Detailed Analysis</h2>
+        <h2>Detailed Analysis</h2>
         
         <button class="collapsible">Pairwise Comparisons</button>
         <div class="content">
@@ -409,7 +409,7 @@ class ComparativeReportGenerator:
         
         html = """
     <div class="section">
-        <h2>🕳️ Gap Overlap Analysis</h2>
+        <h2>Gap Overlap Analysis</h2>
         <p>Analysis of overlapping and unique gaps between oligo sets:</p>
         
         """
@@ -467,14 +467,14 @@ class ComparativeReportGenerator:
         
         html = """
     <div class="section">
-        <h2>💡 Recommendations</h2>
+        <h2>Recommendations</h2>
         
         """
         
         # Primary recommendation
         html += f"""
         <div class="recommendation high-priority">
-            <h3>🥇 Primary Recommendation</h3>
+            <h3>Primary Recommendation</h3>
             <p><strong>Select {best_performer.name}</strong> as your primary oligo set based on its superior overall performance:</p>
             <ul>
                 <li>Highest quality score: {best_performer.quality_score.overall_score:.1f}/10 (Grade {best_performer.quality_score.category.value})</li>
@@ -492,7 +492,7 @@ class ComparativeReportGenerator:
             
             html += f"""
             <div class="recommendation medium-priority">
-                <h3>🥈 Alternative Option</h3>
+                <h3>Alternative Option</h3>
                 <p><strong>{second_best}</strong> is the second-best performer and could be considered if:</p>
                 <ul>
                     <li>Cost or availability constraints affect the primary choice</li>
@@ -505,7 +505,7 @@ class ComparativeReportGenerator:
         # Improvement recommendations
         html += """
         <div class="recommendation low-priority">
-            <h3>🔧 General Improvement Strategies</h3>
+            <h3>General Improvement Strategies</h3>
             <ul>
         """
         
@@ -538,7 +538,7 @@ class ComparativeReportGenerator:
         
         html = """
     <div class="section">
-        <h2>📈 Visualizations</h2>
+        <h2>Visualizations</h2>
         
         """
         
@@ -591,7 +591,7 @@ class ComparativeReportGenerator:
         
         return """
     <div class="section">
-        <h2>🔬 Methodology</h2>
+        <h2>Methodology</h2>
         
         <button class="collapsible">Analysis Pipeline</button>
         <div class="content">
@@ -629,7 +629,7 @@ class ComparativeReportGenerator:
                 <li><strong>t-test/ANOVA:</strong> Compare quality metric means</li>
                 <li><strong>Effect Sizes:</strong> Cohen's d, eta-squared for practical significance</li>
             </ul>
-            <p><strong>Significance Levels:</strong> *** p≤0.001, ** p≤0.01, * p≤0.05, ns p>0.05</p>
+            <p><strong>Significance Levels:</strong> *** p<=0.001, ** p<=0.01, * p<=0.05, ns p>0.05</p>
         </div>
     </div>
         """
@@ -640,7 +640,7 @@ class ComparativeReportGenerator:
     def _get_html_footer_template(self) -> str:
         return """
     <div class="footer">
-        <p>🤖 Generated with <a href="https://claude.ai/code" target="_blank">Claude Code</a></p>
+        <p>Generated with <a href="https://claude.ai/code" target="_blank">Claude Code</a></p>
         <p>Co-Authored-By: Claude &lt;noreply@anthropic.com&gt;</p>
         <p>Report generated on """ + datetime.now().strftime("%Y-%m-%d at %H:%M:%S") + """</p>
     </div>

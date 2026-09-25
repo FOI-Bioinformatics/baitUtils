@@ -18,6 +18,7 @@ from datetime import datetime
 from Bio import SeqIO
 
 from baitUtils.mapping_utils import SequenceLoader, parse_alignments, build_hit_table
+from baitUtils.sequence_features import encode
 
 
 
@@ -77,6 +78,7 @@ class CoverageAnalyzer:
         self.reference_sequences = {}
         self.mappings = []
         self.coverage_arrays = {}
+        self.n_masks = {}
         self.hit_table = None
         self.stats = {}
     
@@ -106,10 +108,12 @@ class CoverageAnalyzer:
         try:
             with open(self.reference_file, 'r') as handle:
                 for record in SeqIO.parse(handle, 'fasta'):
+                    sequence = str(record.seq)
                     self.reference_sequences[record.id] = {
-                        'sequence': str(record.seq),
-                        'length': len(record.seq)
+                        'sequence': sequence,
+                        'length': len(sequence)
                     }
+                    self.n_masks[record.id] = encode(sequence) == 4
             
             total_length = sum(ref['length'] for ref in self.reference_sequences.values())
             logging.info(f"Loaded {len(self.reference_sequences)} reference sequences "
@@ -252,18 +256,30 @@ class CoverageAnalyzer:
         }
     
     def _calculate_breadth_statistics(self) -> None:
-        """Calculate coverage breadth statistics."""
+        """
+        Coverage breadth over the whole reference, and over the bases that
+        are not N (assessable bases), since N runs cannot be covered.
+        """
         total_bases = sum(len(cov_array) for cov_array in self.coverage_arrays.values())
         covered_bases = sum(
-            np.sum(cov_array >= self.min_coverage) 
+            int(np.sum(cov_array >= self.min_coverage))
             for cov_array in self.coverage_arrays.values()
         )
+        n_bases = sum(int(mask.sum()) for mask in self.n_masks.values())
+        covered_non_n = sum(
+            int(np.sum((cov_array >= self.min_coverage) & ~self.n_masks[ref_id]))
+            for ref_id, cov_array in self.coverage_arrays.items() if ref_id in self.n_masks
+        )
+        assessable = total_bases - n_bases
         
         self.stats.update({
             'total_bases': total_bases,
-            'covered_bases': int(covered_bases),
-            'uncovered_bases': total_bases - int(covered_bases),
-            'coverage_breadth': (covered_bases / total_bases * 100.0) if total_bases > 0 else 0.0
+            'n_bases': n_bases,
+            'assessable_bases': assessable,
+            'covered_bases': covered_bases,
+            'uncovered_bases': total_bases - covered_bases,
+            'coverage_breadth': (covered_bases / total_bases * 100.0) if total_bases > 0 else 0.0,
+            'coverage_breadth_non_n': (covered_non_n / assessable * 100.0) if assessable > 0 else 0.0,
         })
         
         # Target coverage breadth
@@ -320,10 +336,16 @@ class CoverageAnalyzer:
         
         for ref_id, cov_array in self.coverage_arrays.items():
             ref_length = len(cov_array)
-            covered_bases = np.sum(cov_array >= self.min_coverage)
+            covered = cov_array >= self.min_coverage
+            covered_bases = int(np.sum(covered))
+            n_mask = self.n_masks.get(ref_id, np.zeros(ref_length, dtype=bool))
+            n_bases = int(n_mask.sum())
+            assessable = ref_length - n_bases
             
             stats = {
                 'length': ref_length,
+                'n_bases': n_bases,
+                'coverage_breadth_non_n': (int(np.sum(covered & ~n_mask)) / assessable * 100.0) if assessable > 0 else 0.0,
                 'plus_hits': sum(1 for m in self.mappings if m['target_name'] == ref_id and m.get('strand') == '+'),
                 'minus_hits': sum(1 for m in self.mappings if m['target_name'] == ref_id and m.get('strand') == '-'),
                 'mean_depth': float(np.mean(cov_array)),
@@ -341,47 +363,49 @@ class CoverageAnalyzer:
         """Count number of coverage gaps in a sequence."""
         return len(find_gap_intervals(coverage_array, self.min_coverage))
     
-    def export_coverage_data(self, output_dir: Path) -> None:
-        """Export detailed coverage data to files."""
-        data_dir = output_dir / "data"
+    def export_coverage_data(self, output_dir: Path):
+        """
+        Export per-position coverage (CSV, 1-based positions), a run-length
+        bedGraph of depth (0-based half-open, compact for large references)
+        and gap regions in BED format. Returns the per-position DataFrame and
+        a DataFrame of gap regions.
+        """
+        data_dir = Path(output_dir) / "data"
         data_dir.mkdir(exist_ok=True)
         
-        # Export per-position coverage
-        coverage_data = []
-        for ref_id, cov_array in self.coverage_arrays.items():
-            for pos, depth in enumerate(cov_array):
-                coverage_data.append({
-                    'chromosome': ref_id,
-                    'position': pos + 1,  # 1-based coordinates
-                    'coverage': depth
-                })
+        frames = []
+        bedgraph_file = data_dir / "coverage.bedgraph"
+        with open(bedgraph_file, "w") as bg:
+            for ref_id, cov_array in self.coverage_arrays.items():
+                cov_array = np.asarray(cov_array)
+                frames.append(pd.DataFrame({
+                    'chromosome': np.repeat(ref_id, cov_array.size),
+                    'position': np.arange(1, cov_array.size + 1, dtype=np.int64),
+                    'coverage': cov_array,
+                }))
+                if cov_array.size:
+                    change = np.flatnonzero(np.diff(cov_array)) + 1
+                    starts = np.concatenate(([0], change))
+                    ends = np.concatenate((change, [cov_array.size]))
+                    for start, end, depth in zip(starts, ends, cov_array[starts]):
+                        bg.write(f"{ref_id}\t{start}\t{end}\t{int(depth)}\n")
         
-        coverage_df = pd.DataFrame(coverage_data)
+        coverage_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+            columns=['chromosome', 'position', 'coverage'])
         coverage_file = data_dir / "coverage_per_position.csv"
         coverage_df.to_csv(coverage_file, index=False)
+        logging.info(f"Coverage data exported to {coverage_file} and {bedgraph_file}")
         
-        logging.info(f"Coverage data exported to {coverage_file}")
-        
-        # Export gap regions in BED format
         gap_regions = []
         for ref_id, cov_array in self.coverage_arrays.items():
             for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
-                gap_regions.append({
-                    'chromosome': ref_id,
-                    'start': gap_start,
-                    'end': gap_end,
-                    'length': gap_end - gap_start
-                })
-        
+                gap_regions.append({'chromosome': ref_id, 'start': gap_start, 'end': gap_end,
+                                    'length': gap_end - gap_start})
         if gap_regions:
-            gap_df = pd.DataFrame(gap_regions)
             gap_file = data_dir / "gap_regions.bed"
-            
-            # Save in BED format (0-based)
             with open(gap_file, 'w') as f:
-                for _, row in gap_df.iterrows():
-                    f.write(f"{row['chromosome']}\t{row['start']}\t{row['end']}\n")
-            
+                for gap in gap_regions:
+                    f.write(f"{gap['chromosome']}\t{gap['start']}\t{gap['end']}\n")
             logging.info(f"Gap regions exported to {gap_file}")
         
         return coverage_df, pd.DataFrame(gap_regions)

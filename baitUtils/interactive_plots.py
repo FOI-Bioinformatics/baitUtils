@@ -103,7 +103,7 @@ class InteractivePlotter:
             percentages = list(depth_dist.values())
             
             fig.add_trace(go.Bar(
-                x=[f"≥{t}x" for t in thresholds],
+                x=[f">={t}x" for t in thresholds],
                 y=percentages,
                 marker_color='rgba(55, 128, 191, 0.7)',
                 text=[f'{p:.1f}%' for p in percentages],

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.1 (2026-09-25)
+
+### Added
+
+- Coverage breadth over assessable (non-N) bases is reported alongside the
+  breadth over the whole reference (`coverage_breadth_non_n`, `n_bases`,
+  `assessable_bases`, overall and per reference) and in
+  `coverage_statistics.txt`.
+- `CoverageAnalyzer.export_coverage_data` writes a run-length
+  `coverage.bedgraph` in addition to the per-position CSV and gap BED.
+
+### Changed
+
+- The per-position export is built with numpy instead of one dictionary
+  per base.
+- Reports, plots and console output use ASCII only (no emoji, ">=" instead
+  of the symbol, "C" for degrees), which also removes matplotlib font
+  warnings.
+
 ## 0.5.0 (2026-09-25)
 
 ### Added

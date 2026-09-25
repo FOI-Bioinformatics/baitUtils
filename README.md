@@ -193,7 +193,9 @@ evaluation/
 
 Mapping efficiency counts baits in the input FASTA. Gap coordinates come from
 the per-base coverage arrays. Hits are counted per strand (`strand_counts`,
-and `plus_hits` and `minus_hits` per reference).
+and `plus_hits` and `minus_hits` per reference). Breadth is reported both
+over the whole reference and over the bases that are not N
+(`coverage_breadth_non_n`), since N runs cannot be covered.
 
 Reference analysis computes sequence features per reference and per window
 (`--reference-analysis-window`, default 1000 bp): GC, N content, entropy,

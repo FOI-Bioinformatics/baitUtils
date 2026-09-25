@@ -354,14 +354,14 @@ def print_summary(analyzer: ComparativeAnalyzer, comparison_matrix, plots: Dict[
         print(f"  {i}. {name:<20} Score: {score:.2f}, Category: {oligo_set.quality_score.category.value}")
     
     print("\nResults Summary:")
-    print(f"  📊 Interactive Report:   {Path(report_file).name}")
-    print(f"  📈 Visualizations:       {len(plots)} plots generated")
-    print(f"  📋 Data Exports:         {len(exported_files)} files exported")
+    print(f"  Interactive Report:   {Path(report_file).name}")
+    print(f"  Visualizations:       {len(plots)} plots generated")
+    print(f"  Data Exports:         {len(exported_files)} files exported")
     
     print("\nKey Files:")
-    print(f"  • {Path(report_file).name}")
+    print(f"  - {Path(report_file).name}")
     for file_type, file_path in exported_files.items():
-        print(f"  • {Path(file_path).name}")
+        print(f"  - {Path(file_path).name}")
     
     print("="*80)
 

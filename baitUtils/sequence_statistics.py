@@ -299,7 +299,7 @@ class SequenceStatsCalculator:
                 if gc_values:
                     f.write(f"GC content: {min(gc_values):.1f}% - {max(gc_values):.1f}% (mean: {sum(gc_values)/len(gc_values):.1f}%)\n")
                 if tm_values:
-                    f.write(f"Melting temperature: {min(tm_values):.1f}°C - {max(tm_values):.1f}°C (mean: {sum(tm_values)/len(tm_values):.1f}°C)\n")
+                    f.write(f"Melting temperature: {min(tm_values):.1f}C - {max(tm_values):.1f}C (mean: {sum(tm_values)/len(tm_values):.1f}C)\n")
                 if length_values:
                     f.write(f"Sequence length: {min(length_values)} - {max(length_values)} bp (mean: {sum(length_values)/len(length_values):.0f} bp)\n")
 
@@ -330,9 +330,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     
     # Melting temperature filters
     parser.add_argument('-q', '--mint', type=float,
-                       help='Minimum melting temperature (°C)')
+                       help='Minimum melting temperature (C)')
     parser.add_argument('-z', '--maxt', type=float,
-                       help='Maximum melting temperature (°C)')
+                       help='Maximum melting temperature (C)')
     
     # Other filters
     # Thermodynamic parameters
