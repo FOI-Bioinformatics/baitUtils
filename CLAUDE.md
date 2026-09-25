@@ -26,7 +26,8 @@ The project follows a modular, well-factored architecture with clear separation 
 - **`sequence_analysis.py`**: Core sequence analysis functions (GC content, Tm, MFE, entropy, complexity)
 - **`coverage_analysis.py`**: Coverage calculation utilities, PSL parsing, BED operations
 - **`plotting_utils.py`**: Comprehensive plotting utilities with multiple chart types
-- **`mapping_utils.py`**: pblat integration, the single PSL parser (`PSLHit`, `parse_psl`, BLAT identity) and the per-bait hit table
+- **`mapping_utils.py`**: pblat and minimap2 runners, the single alignment parser (`PSLHit`, `parse_psl`, `parse_paf`, `parse_alignments`, BLAT identity) and the per-bait hit table
+- **`sequence_features.py`**: vectorized sequence features (GC, entropy, homopolymers, duplicated k-mers, window features and window coverage)
 - **`bedtools_support.py`**: dependency check for the commands that need pybedtools and bedtools
 - **`json_export.py`**: JSON writer used by evaluate and compare
 - **`templates/`**: CSS and JavaScript for the HTML reports
@@ -35,7 +36,7 @@ The project follows a modular, well-factored architecture with clear separation 
 ### Advanced Analysis Modules
 - **`quality_scorer.py`**: Quality score in 0-1 with documented weights, targets and thresholds
 - **`benchmark.py`**: Comparison of observed metrics with the design targets in `QualityScorer.DEFAULT_BENCHMARKS`
-- **`reference_analyzer.py`**: Reference sequence complexity analysis
+- **`reference_analyzer.py`**: Per-reference and per-window features with Spearman correlations against observed coverage
 - **`interactive_plots.py`**: Interactive Plotly visualizations
 - **`report_generator.py`**: HTML report generation
 
@@ -69,7 +70,7 @@ pip install -e .
 python -m pytest tests/
 
 # Tests that need pblat, bedtools and ViennaRNA skip unless the tools are on PATH
-# conda create -n baitutils-test -c conda-forge -c bioconda python=3.12 pybedtools bedtools pblat viennarna
+# conda create -n baitutils-test -c conda-forge -c bioconda python=3.12 pybedtools bedtools pblat minimap2 viennarna
 # PATH=$CONDA_PREFIX/bin:$PATH python -m pytest tests/
 
 # Run all tests
@@ -213,7 +214,7 @@ baitUtils evaluate -i oligos.fasta -r reference.fasta -o results/ \
 - **`evaluate.py`**: Main orchestrator integrating all analysis components
 - **`coverage_stats.py`**: Coverage statistics computation
 - **`quality_scorer.py`**: Quality score in 0-1 with Excellent/Good/Fair/Poor categories
-- **`reference_analyzer.py`**: Reference sequence complexity analysis
+- **`reference_analyzer.py`**: Per-reference and per-window features with Spearman correlations against observed coverage
 - **`gap_analysis.py`**: Gap characterization with sequence correlation
 
 ## Phase 3: Comparative Analysis (compare command)

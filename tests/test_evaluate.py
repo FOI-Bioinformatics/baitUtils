@@ -56,7 +56,8 @@ class TestEvaluateCommand(unittest.TestCase):
         args.target_coverage = 10.0
         
         # Should not raise exception
-        with patch('subprocess.run'):
+        args.mapper = 'pblat'
+        with patch('baitUtils.evaluate.check_mapper_available', return_value=True):
             validate_inputs(args)
     
     def test_validate_inputs_missing_files(self):

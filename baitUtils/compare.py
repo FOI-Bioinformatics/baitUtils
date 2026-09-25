@@ -22,6 +22,7 @@ from baitUtils._version import __version__
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
 from baitUtils.json_export import write_json
+from baitUtils.mapping_utils import check_mapper_available
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
 
@@ -49,6 +50,17 @@ def add_arguments(parser):
     )
     
     # Mapping parameters
+    parser.add_argument(
+        '--mapper',
+        choices=['pblat', 'minimap2'],
+        default='pblat',
+        help='Mapping tool (default: pblat). minimap2 is run with -c and the chosen preset'
+    )
+    parser.add_argument(
+        '--minimap2-preset',
+        default='sr',
+        help='minimap2 -x preset when --mapper minimap2 (default: sr)'
+    )
     parser.add_argument(
         '--min-identity',
         type=float,
@@ -153,7 +165,9 @@ def main(args):
         min_length=args.min_length,
         min_coverage=args.min_coverage,
         target_coverage=args.target_coverage,
-        threads=args.threads
+        threads=args.threads,
+        mapper=args.mapper,
+        minimap2_preset=args.minimap2_preset
     )
     
     # Add each oligo set for analysis
@@ -290,12 +304,8 @@ def validate_inputs(args) -> None:
         logging.error("Significance level must be between 0 and 1")
         sys.exit(1)
     
-    # Check if pblat is available
-    try:
-        import subprocess
-        subprocess.run(['pblat'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        logging.error("pblat not found in PATH. Please install pblat.")
+    if not check_mapper_available(args.mapper):
+        logging.error(f"{args.mapper} not found in PATH. Please install {args.mapper}.")
         sys.exit(1)
 
 

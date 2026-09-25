@@ -16,7 +16,6 @@ import logging
 import sys
 from pathlib import Path
 from typing import Dict, List
-import subprocess
 import tempfile
 import shutil
 
@@ -24,7 +23,7 @@ from baitUtils._version import __version__
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
 from baitUtils.json_export import write_json
-from baitUtils.mapping_utils import run_pblat
+from baitUtils.mapping_utils import run_mapper, check_mapper_available
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer
@@ -57,9 +56,14 @@ def add_arguments(parser):
     # Mapping parameters
     parser.add_argument(
         '--mapper',
-        choices=['pblat'],
+        choices=['pblat', 'minimap2'],
         default='pblat',
-        help='Mapping tool to use (default: pblat)'
+        help='Mapping tool (default: pblat). minimap2 is run with -c and the chosen preset'
+    )
+    parser.add_argument(
+        '--minimap2-preset',
+        default='sr',
+        help='minimap2 -x preset when --mapper minimap2 (default: sr)'
     )
     parser.add_argument(
         '--min-identity',
@@ -352,27 +356,23 @@ def validate_inputs(args) -> None:
         logging.error("Target coverage must be >= minimum coverage")
         sys.exit(1)
     
-    # Check if pblat is available
-    try:
-        subprocess.run(['pblat'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        logging.error("pblat not found in PATH. Please install pblat.")
+    if not check_mapper_available(args.mapper):
+        logging.error(f"{args.mapper} not found in PATH. Please install {args.mapper}.")
         sys.exit(1)
 
 
 def perform_mapping(args, temp_dir: Path) -> Path:
-    """Perform oligo mapping using pblat."""
-    psl_file = temp_dir / "mapping.psl"
-    
+    """Map oligos with the chosen mapper; returns the PSL or PAF path."""
     try:
-        run_pblat(args.reference, args.input, str(psl_file), threads=args.threads,
-                  min_identity=args.min_identity)
+        psl_file = Path(run_mapper(args.mapper, args.reference, args.input, str(temp_dir), "mapping",
+                                   threads=args.threads, min_identity=args.min_identity,
+                                   minimap2_preset=args.minimap2_preset))
     except RuntimeError as e:
         logging.error(str(e))
         sys.exit(1)
     
     if not psl_file.exists() or psl_file.stat().st_size == 0:
-        logging.error("pblat produced no output")
+        logging.error(f"{args.mapper} produced no output")
         sys.exit(1)
     
     logging.info(f"Mapping completed. Results saved to {psl_file}")

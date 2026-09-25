@@ -17,7 +17,7 @@ from datetime import datetime
 
 from Bio import SeqIO
 
-from baitUtils.mapping_utils import SequenceLoader, parse_psl, build_hit_table
+from baitUtils.mapping_utils import SequenceLoader, parse_alignments, build_hit_table
 
 
 
@@ -121,7 +121,7 @@ class CoverageAnalyzer:
         """Parse the PSL file and keep hits passing the identity and length filters."""
         total = 0
         kept_hits = []
-        for hit in parse_psl(self.psl_file):
+        for hit in parse_alignments(self.psl_file):
             total += 1
             if hit.aligned_length < self.min_length or hit.identity < self.min_identity:
                 continue

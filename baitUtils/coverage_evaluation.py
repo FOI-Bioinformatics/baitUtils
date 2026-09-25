@@ -84,8 +84,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        version=f"baitUtils coverage-evaluation {__version__}")
     
     # Input files
-    parser.add_argument("--psl", type=Path, required=True,
-                       help="Path to PSL-like file")
+    parser.add_argument("--alignments", "--psl", dest="psl", type=Path, required=True,
+                       help="Alignment file: PSL from pblat or PAF from minimap2 -c (by extension)")
     parser.add_argument("--forced_oligos", type=Path,
                        help="File with oligo IDs that must be included in coverage check")
     parser.add_argument("--reference", type=Path, required=True,

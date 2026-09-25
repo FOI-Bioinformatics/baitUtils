@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import tempfile
 
 from baitUtils.coverage_stats import CoverageAnalyzer
-from baitUtils.mapping_utils import run_pblat
+from baitUtils.mapping_utils import run_mapper
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer, QualityScore
@@ -60,7 +60,7 @@ class ComparativeAnalyzer:
     def __init__(self, reference_file: str, output_dir: Path, 
                  min_identity: float = 90.0, min_length: int = 100,
                  min_coverage: float = 1.0, target_coverage: float = 10.0,
-                 threads: int = 1):
+                 threads: int = 1, mapper: str = 'pblat', minimap2_preset: str = 'sr'):
         """
         Initialize comparative analyzer.
         
@@ -79,6 +79,8 @@ class ComparativeAnalyzer:
         self.min_coverage = min_coverage
         self.target_coverage = target_coverage
         self.threads = threads
+        self.mapper = mapper
+        self.minimap2_preset = minimap2_preset
         
         self.oligo_sets: List[OligoSetResult] = []
         self.reference_analysis: Optional[Dict] = None
@@ -113,11 +115,10 @@ class ComparativeAnalyzer:
         logging.info(f"Added oligo set '{name}' with quality score {result.quality_score.overall_score:.1f}")
     
     def _perform_mapping(self, oligo_file: str, temp_dir: Path) -> str:
-        """Perform oligo mapping using pblat."""
-        psl_file = temp_dir / "mapping.psl"
-        run_pblat(self.reference_file, oligo_file, str(psl_file), threads=self.threads,
-                  min_identity=self.min_identity)
-        return str(psl_file)
+        """Map one oligo set with the chosen mapper; returns the PSL or PAF path."""
+        return run_mapper(self.mapper, self.reference_file, oligo_file, str(temp_dir), "mapping",
+                          threads=self.threads, min_identity=self.min_identity,
+                          minimap2_preset=self.minimap2_preset)
     
     def _analyze_oligo_set(self, name: str, oligo_file: str, psl_file: str) -> OligoSetResult:
         """Perform complete analysis of a single oligo set."""

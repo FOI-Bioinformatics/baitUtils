@@ -98,7 +98,8 @@ class SequenceMappingProcessor:
             args.threads,
             args.minMatch,
             args.minScore,
-            args.minIdentity
+            args.minIdentity,
+            args.minimap2_preset
         )
     
     def _parse_mapping_results(self, args, mapping_output: str) -> set:
@@ -195,8 +196,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help='Prefix for output file names (default: out)')
     
     # Mapping parameters
-    parser.add_argument('--mapper', choices=['pblat'], default='pblat',
-                       help='Mapping tool to use (default: pblat)')
+    parser.add_argument('--mapper', choices=['pblat', 'minimap2'], default='pblat',
+                       help='Mapping tool (default: pblat). minimap2 is run with -c and --minimap2-preset')
+    parser.add_argument('--minimap2-preset', dest='minimap2_preset', default='sr',
+                       help='minimap2 -x preset when --mapper minimap2 (default: sr)')
     parser.add_argument('-X', '--threads', type=int, default=1,
                        help='Number of threads (default: 1)')
     

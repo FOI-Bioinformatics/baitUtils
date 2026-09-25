@@ -24,7 +24,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
 from baitUtils.gap_filling_algorithm import OligoMapping
-from baitUtils.mapping_utils import parse_psl, filter_hits
+from baitUtils.mapping_utils import parse_alignments, filter_hits
 
 
 def merge_uncovered_intervals(
@@ -84,7 +84,7 @@ class PSLParser:
         temp_bed = basename if temp_dir is None else str(temp_dir / basename)
         kept = 0
         with open(temp_bed, "w") as f:
-            for hit in filter_hits(parse_psl(psl_path), min_similarity, min_length):
+            for hit in filter_hits(parse_alignments(psl_path), min_similarity, min_length):
                 kept += 1
                 for start, end in hit.target_blocks:
                     f.write(f"{hit.t_name}\t{start}\t{end}\t{hit.q_name}\t{kept}\n")
