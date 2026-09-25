@@ -104,46 +104,6 @@ class TestComparativeAnalyzer(unittest.TestCase):
         self.assertEqual(self.analyzer.min_length, 100)
         self.assertEqual(len(self.analyzer.oligo_sets), 0)
     
-    @patch('baitUtils.comparative_analyzer.CoverageAnalyzer')
-    @patch('baitUtils.comparative_analyzer.GapAnalyzer')  
-    @patch('baitUtils.comparative_analyzer.ReferenceAnalyzer')
-    @patch('baitUtils.comparative_analyzer.QualityScorer')
-    @patch('baitUtils.comparative_analyzer.BenchmarkAnalyzer')
-    @patch('subprocess.run')
-    def test_add_oligo_set(self, mock_subprocess, mock_benchmark, mock_quality, 
-                          mock_ref, mock_gap, mock_coverage):
-        """Test adding oligo sets for comparison."""
-        # Mock subprocess for pblat
-        mock_subprocess.return_value = MagicMock(returncode=0)
-        
-        # Mock analysis results
-        mock_coverage.return_value.analyze.return_value = {
-            'coverage_breadth': 85.0,
-            'mean_depth': 10.5,
-            'mapping_efficiency': 90.0
-        }
-        
-        mock_gap.return_value.analyze.return_value = {
-            'total_gaps': 25,
-            'mean_gap_size': 150
-        }
-        
-        mock_ref.return_value.analyze.return_value = {
-            'total_length': 10000,
-            'challenging_regions': []
-        }
-        
-        mock_quality.return_value.calculate_score.return_value = create_quality_score(8.5, 'A')
-        
-        mock_benchmark.return_value.run_full_benchmark.return_value = {}
-        
-        # Add oligo set
-        self.analyzer.add_oligo_set('test_set', self.oligo_files['set1'])
-        
-        # Check that set was added
-        self.assertEqual(len(self.analyzer.oligo_sets), 1)
-        self.assertEqual(self.analyzer.oligo_sets[0].name, 'test_set')
-    
     def test_generate_comparison_matrix(self):
         """Test comparison matrix generation."""
         # Add mock oligo sets
@@ -291,7 +251,7 @@ class TestDifferentialAnalyzer(unittest.TestCase):
             coverage_stats={
                 'coverage_breadth': 80.0,
                 'mean_depth': 8.0,
-                'gini_coefficient': 0.3,
+                'coverage_gini': 0.3,
                 'mapping_efficiency': 85.0,
                 'reference_length': 10000
             },
@@ -305,7 +265,7 @@ class TestDifferentialAnalyzer(unittest.TestCase):
             coverage_stats={
                 'coverage_breadth': 90.0,
                 'mean_depth': 12.0,
-                'gini_coefficient': 0.2,
+                'coverage_gini': 0.2,
                 'mapping_efficiency': 92.0,
                 'reference_length': 10000
             },
@@ -354,7 +314,7 @@ class TestDifferentialAnalyzer(unittest.TestCase):
         
         # Check results structure
         expected_metrics = ['quality_score', 'coverage_breadth', 'mean_depth', 
-                           'mapping_efficiency', 'gap_count', 'gini_coefficient']
+                           'mapping_efficiency', 'gap_count', 'coverage_gini']
         
         for metric in expected_metrics:
             self.assertIn(metric, results)

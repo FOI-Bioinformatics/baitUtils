@@ -73,8 +73,9 @@ class BenchmarkAnalyzer:
         
         # Get reference sequence characteristics
         ref_length = self.coverage_stats.get('reference_length', 0)
-        challenging_regions = self.reference_analysis.get('challenging_regions', [])
-        challenging_bp = sum(region['length'] for region in challenging_regions)
+        # challenging_regions is a dict keyed by reference id (ReferenceAnalyzer)
+        challenging_regions = list(self.reference_analysis.get('challenging_regions', {}).values())
+        challenging_bp = sum(region.get('length', 0) for region in challenging_regions)
         
         # Calculate theoretical maximum coverage breadth
         # Assume we can cover all non-challenging regions perfectly
@@ -177,7 +178,7 @@ class BenchmarkAnalyzer:
         """Benchmark depth uniformity against theoretical optimal."""
         
         # Convert Gini coefficient to uniformity score
-        gini = self.coverage_stats.get('gini_coefficient', 0.5)
+        gini = self.coverage_stats.get('coverage_gini', 0.5)
         actual_uniformity = (1 - gini) * 100  # Higher = more uniform
         theoretical_uniformity = theoretical.optimal_depth_uniformity
         

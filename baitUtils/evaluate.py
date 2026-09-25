@@ -233,10 +233,11 @@ def main(args):
             logging.info("Step 5/8: Analyzing reference sequences...")
             ref_analyzer = ReferenceAnalyzer(
                 reference_file=args.reference,
+                coverage_data=coverage_stats,
                 window_size=args.reference_analysis_window
             )
             reference_analysis = ref_analyzer.analyze()
-            
+
             # Step 6: Calculate quality scores
             logging.info("Step 6/8: Calculating quality scores...")
             quality_scorer = QualityScorer(
@@ -244,7 +245,7 @@ def main(args):
                 gap_analysis=gap_analysis,
                 reference_analysis=reference_analysis
             )
-            quality_score = quality_scorer.calculate_score()
+            quality_score = quality_scorer.calculate_quality_score()
             
             # Step 7: Run benchmarking analysis
             if args.enable_benchmarking:
@@ -264,10 +265,10 @@ def main(args):
                     coverage_stats=coverage_stats,
                     gap_analysis=gap_analysis,
                     reference_analysis=reference_analysis,
-                    quality_score=quality_score,
+                    quality_scores=quality_score.to_dict(),
                     output_dir=output_dir
                 )
-                interactive_plotter.generate_all_plots()
+                interactive_plotter.create_all_interactive_plots()
             
             # Step 9: Generate interactive HTML report
             if args.enable_html_report:
@@ -276,10 +277,8 @@ def main(args):
                     coverage_stats=coverage_stats,
                     gap_analysis=gap_analysis,
                     reference_analysis=reference_analysis,
-                    quality_score=quality_score,
-                    output_dir=output_dir,
-                    oligos_file=args.input,
-                    reference_file=args.reference
+                    quality_scores=quality_score.to_dict(),
+                    output_dir=output_dir
                 )
                 report_generator.generate_report()
         
@@ -538,8 +537,8 @@ def print_summary(coverage_stats: Dict, gap_analysis: Dict, quality_score=None) 
     print(f"Mapping Efficiency:   {coverage_stats.get('mapping_efficiency', 0):6.1f}%")
     
     if quality_score is not None:
-        print(f"Overall Quality:      {quality_score.overall_score:6.1f}/10")
-        print(f"Quality Grade:        {quality_score.category.value:>6s}")
+        print(f"Overall Quality:      {quality_score.overall_score:6.2f} (0-1)")
+        print(f"Quality Category:     {quality_score.category.value:>6s}")
     
     print("="*60)
 

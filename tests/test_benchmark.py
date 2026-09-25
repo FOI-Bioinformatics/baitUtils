@@ -26,7 +26,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         self.coverage_stats = {
             'coverage_breadth': 75.5,
             'mean_depth': 8.2,
-            'gini_coefficient': 0.35,
+            'coverage_gini': 0.35,
             'mapping_efficiency': 88.3,
             'reference_length': 12000,
             'covered_bases': 9060
@@ -41,11 +41,11 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         
         self.reference_analysis = {
             'total_length': 12000,
-            'challenging_regions': [
-                {'start': 1500, 'end': 1800, 'length': 300, 'type': 'low_complexity'},
-                {'start': 6000, 'end': 6200, 'length': 200, 'type': 'homopolymer'},
-                {'start': 9500, 'end': 9750, 'length': 250, 'type': 'repeat'}
-            ]
+            'challenging_regions': {
+                'region_1': {'start': 1500, 'end': 1800, 'length': 300, 'type': 'low_complexity'},
+                'region_2': {'start': 6000, 'end': 6200, 'length': 200, 'type': 'homopolymer'},
+                'region_3': {'start': 9500, 'end': 9750, 'length': 250, 'type': 'repeat'}
+            }
         }
         
         self.quality_score = QualityScore(
@@ -102,7 +102,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         self.assertTrue(0 <= theoretical.theoretical_quality_score <= 10)
         
         # Check that theoretical values account for challenging regions
-        challenging_bp = sum(region['length'] for region in self.reference_analysis['challenging_regions'])
+        challenging_bp = sum(region['length'] for region in self.reference_analysis['challenging_regions'].values())
         expected_max_breadth = (self.reference_analysis['total_length'] - challenging_bp) / self.reference_analysis['total_length'] * 100
         self.assertAlmostEqual(theoretical.max_coverage_breadth, expected_max_breadth, places=1)
         
@@ -144,7 +144,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         self.assertIsInstance(result, BenchmarkResult)
         
         # Check actual score calculation (conversion from Gini)
-        expected_uniformity = (1 - self.coverage_stats['gini_coefficient']) * 100
+        expected_uniformity = (1 - self.coverage_stats['coverage_gini']) * 100
         self.assertAlmostEqual(result.actual_score, expected_uniformity, places=1)
         
         # Check efficiency ratio
@@ -299,7 +299,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         # Test with perfect coverage
         perfect_coverage = self.coverage_stats.copy()
         perfect_coverage['coverage_breadth'] = 100.0
-        perfect_coverage['gini_coefficient'] = 0.0
+        perfect_coverage['coverage_gini'] = 0.0
         perfect_coverage['mapping_efficiency'] = 100.0
         
         perfect_analyzer = BenchmarkAnalyzer(

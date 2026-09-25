@@ -165,7 +165,7 @@ class DifferentialAnalyzer:
         
         mean_depth = oligo_set.coverage_stats.get('mean_depth', 5.0)
         coverage_breadth = oligo_set.coverage_stats.get('coverage_breadth', 80.0)
-        gini_coeff = oligo_set.coverage_stats.get('gini_coefficient', 0.3)
+        gini_coeff = oligo_set.coverage_stats.get('coverage_gini', 0.3)
         
         # Simulate coverage array based on statistics
         ref_length = oligo_set.coverage_stats.get('reference_length', 10000)
@@ -209,7 +209,7 @@ class DifferentialAnalyzer:
             'mean_depth': [s.coverage_stats.get('mean_depth', 0) for s in oligo_sets],
             'mapping_efficiency': [s.coverage_stats.get('mapping_efficiency', 0) for s in oligo_sets],
             'gap_count': [s.gap_analysis.get('total_gaps', 0) for s in oligo_sets],
-            'gini_coefficient': [s.coverage_stats.get('gini_coefficient', 0) for s in oligo_sets]
+            'coverage_gini': [s.coverage_stats.get('coverage_gini', 0) for s in oligo_sets]
         }
         
         for metric_name, values in metrics.items():
@@ -430,7 +430,7 @@ class DifferentialAnalyzer:
             'mean_depth': 'mean coverage depth',
             'mapping_efficiency': 'mapping efficiency',
             'gap_count': 'gap counts',
-            'gini_coefficient': 'coverage uniformity'
+            'coverage_gini': 'coverage uniformity'
         }
         
         metric_name = metric_names.get(metric, metric)

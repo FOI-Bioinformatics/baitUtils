@@ -194,7 +194,7 @@ class ComparativeVisualizer:
                 'Coverage_Breadth': result.coverage_stats.get('coverage_breadth', 0),
                 'Mean_Depth': result.coverage_stats.get('mean_depth', 0),
                 'Median_Depth': result.coverage_stats.get('median_depth', 0),
-                'Gini_Coefficient': result.coverage_stats.get('gini_coefficient', 0)
+                'Gini_Coefficient': result.coverage_stats.get('coverage_gini', 0)
             })
         
         df = pd.DataFrame(data)

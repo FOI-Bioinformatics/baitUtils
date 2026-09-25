@@ -138,7 +138,7 @@ class TestQualityScorer(unittest.TestCase):
         self.coverage_stats = {
             'coverage_breadth': 85.5,
             'mean_depth': 12.3,
-            'gini_coefficient': 0.3,
+            'coverage_gini': 0.3,
             'mapping_efficiency': 92.1,
             'reference_length': 10000,
             'covered_bases': 8550
@@ -153,10 +153,10 @@ class TestQualityScorer(unittest.TestCase):
         
         self.reference_analysis = {
             'total_length': 10000,
-            'challenging_regions': [
-                {'start': 1000, 'end': 1200, 'length': 200},
-                {'start': 5000, 'end': 5100, 'length': 100}
-            ]
+            'challenging_regions': {
+                'region_1': {'start': 1000, 'end': 1200, 'length': 200},
+                'region_2': {'start': 5000, 'end': 5100, 'length': 100}
+            }
         }
     
     def test_calculate_quality_score(self):
@@ -207,7 +207,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         self.coverage_stats = {
             'coverage_breadth': 78.5,
             'mean_depth': 8.2,
-            'gini_coefficient': 0.4,
+            'coverage_gini': 0.4,
             'mapping_efficiency': 85.3,
             'reference_length': 15000
         }
@@ -221,10 +221,10 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         
         self.reference_analysis = {
             'total_length': 15000,
-            'challenging_regions': [
-                {'start': 2000, 'end': 2300, 'length': 300},
-                {'start': 8000, 'end': 8150, 'length': 150}
-            ]
+            'challenging_regions': {
+                'region_1': {'start': 2000, 'end': 2300, 'length': 300},
+                'region_2': {'start': 8000, 'end': 8150, 'length': 150}
+            }
         }
         
         self.quality_score = create_quality_score(7.2, 'B')

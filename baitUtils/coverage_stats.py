@@ -24,7 +24,6 @@ try:
     HAS_PYBEDTOOLS = True
 except ImportError:
     HAS_PYBEDTOOLS = False
-    logging.warning("pybedtools not available - some coverage analysis features may be limited")
 
 
 class CoverageAnalyzer:

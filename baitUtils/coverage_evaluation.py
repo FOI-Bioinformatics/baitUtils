@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from baitUtils._version import __version__
+from baitUtils.bedtools_support import require_bedtools
 from baitUtils.coverage_checking import CoverageChecker, PSLToBedConverter, ForcedOligoFilter
 
 
@@ -34,7 +35,8 @@ class CoverageEvaluationProcessor:
         """
         # Set up logging
         self._setup_logging(args.log_level)
-        
+        require_bedtools()
+
         # Read forced oligos
         forced_oligos = self.forced_filter.read_forced_oligos(args.forced_oligos)
         

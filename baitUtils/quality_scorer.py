@@ -33,6 +33,17 @@ class QualityScore:
     benchmarks: Dict[str, float]
     recommendations: List[str]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a plain dictionary representation for reports and JSON output."""
+        return {
+            'overall_score': self.overall_score,
+            'category': self.category.value,
+            'component_scores': dict(self.component_scores),
+            'weighted_scores': dict(self.weighted_scores),
+            'benchmarks': dict(self.benchmarks),
+            'recommendations': list(self.recommendations),
+        }
+
 
 class QualityScorer:
     """Comprehensive quality scoring system for coverage evaluation."""

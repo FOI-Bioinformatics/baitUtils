@@ -155,16 +155,19 @@ class ComparativeAnalyzer:
         
         # Reference analysis (shared across all oligo sets)
         if self.reference_analysis is None:
-            ref_analyzer = ReferenceAnalyzer(self.reference_file)
+            ref_analyzer = ReferenceAnalyzer(
+                reference_file=self.reference_file,
+                coverage_data=coverage_stats
+            )
             self.reference_analysis = ref_analyzer.analyze()
-        
+
         # Quality scoring
         quality_scorer = QualityScorer(
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
             reference_analysis=self.reference_analysis
         )
-        quality_score = quality_scorer.calculate_score()
+        quality_score = quality_scorer.calculate_quality_score()
         
         # Benchmarking
         benchmark_analyzer = BenchmarkAnalyzer(
@@ -199,7 +202,7 @@ class ComparativeAnalyzer:
                 'Total_Gaps': result.gap_analysis.get('total_gaps', 0),
                 'Largest_Gap_bp': result.gap_analysis.get('max_gap_size', 0),
                 'Mapping_Efficiency_%': result.coverage_stats.get('mapping_efficiency', 0),
-                'Gini_Coefficient': result.coverage_stats.get('gini_coefficient', 0),
+                'Gini_Coefficient': result.coverage_stats.get('coverage_gini', 0),
                 'Quality_Score': result.quality_score.overall_score,
                 'Quality_Grade': result.quality_score.category.value,
                 'Total_Oligos': result.coverage_stats.get('total_oligos', 0),
@@ -236,8 +239,8 @@ class ComparativeAnalyzer:
                 quality_diff = set1.quality_score.overall_score - set2.quality_score.overall_score
                 mapping_diff = (set1.coverage_stats.get('mapping_efficiency', 0) - 
                               set2.coverage_stats.get('mapping_efficiency', 0))
-                uniformity_diff = (set1.coverage_stats.get('gini_coefficient', 0) - 
-                                 set2.coverage_stats.get('gini_coefficient', 0))
+                uniformity_diff = (set1.coverage_stats.get('coverage_gini', 0) - 
+                                 set2.coverage_stats.get('coverage_gini', 0))
                 
                 comparison = ComparisonMetrics(
                     coverage_breadth_diff=coverage_diff,
@@ -272,7 +275,7 @@ class ComparativeAnalyzer:
         elif metric == 'mapping_efficiency':
             return max(self.oligo_sets, key=lambda x: x.coverage_stats.get('mapping_efficiency', 0))
         elif metric == 'depth_uniformity':
-            return min(self.oligo_sets, key=lambda x: x.coverage_stats.get('gini_coefficient', 1.0))
+            return min(self.oligo_sets, key=lambda x: x.coverage_stats.get('coverage_gini', 1.0))
         else:
             raise ValueError(f"Unknown metric: {metric}")
     

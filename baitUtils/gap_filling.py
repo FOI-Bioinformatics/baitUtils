@@ -16,6 +16,7 @@ from typing import Optional
 from Bio import SeqIO
 
 from baitUtils._version import __version__
+from baitUtils.bedtools_support import require_bedtools
 from baitUtils.gap_filling_algorithm import MultiPassSelector
 from baitUtils.coverage_analysis import (
     CoverageAnalysisOrchestrator, 
@@ -45,7 +46,8 @@ class GapFillingProcessor:
         """
         # Set up logging
         self._setup_logging(args.log_level)
-        
+        require_bedtools()
+
         # Load forced oligos
         forced_oligos = self.forced_handler.read_forced_oligos(args.forced_oligos)
         

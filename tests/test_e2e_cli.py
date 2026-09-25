@@ -68,7 +68,6 @@ class TestMap:
 
 
 class TestEvaluate:
-    @pytest.mark.xfail(strict=True, reason="evaluate crashes: ReferenceAnalyzer call mismatch")
     def test_evaluate_runs_end_to_end(self, dataset, tmp_path, fake_pblat, run_cli):
         out = tmp_path / "eval"
         run_cli(["evaluate", "-i", dataset["baits"], "-r", dataset["reference"], "-o", out])
@@ -78,7 +77,6 @@ class TestEvaluate:
 
 
 class TestCompare:
-    @pytest.mark.xfail(strict=True, reason="compare crashes: ReferenceAnalyzer call mismatch")
     def test_compare_runs_end_to_end(self, dataset, tmp_path, fake_pblat, run_cli):
         out = tmp_path / "cmp"
         run_cli(["compare", "-r", dataset["reference"], "-o", out,
@@ -109,10 +107,9 @@ class TestCheckAndFill:
 
 class TestMissingDependencies:
     @pytest.mark.skipif(_has_bedtools(), reason="only meaningful without pybedtools")
-    @pytest.mark.xfail(strict=True, reason="check crashes with NoneType instead of a dependency message")
     def test_check_without_bedtools_exits_with_message(self, dataset, tmp_path, run_cli, capsys, monkeypatch):
         monkeypatch.chdir(tmp_path)
         with pytest.raises(SystemExit) as exc:
             run_cli(["check", "--psl", dataset["psl"], "--fasta_reference", dataset["reference"]])
         assert exc.value.code != 0
-        assert "bedtools" in (capsys.readouterr().err + capsys.readouterr().out).lower()
+        assert "bedtools" in str(exc.value.code).lower()

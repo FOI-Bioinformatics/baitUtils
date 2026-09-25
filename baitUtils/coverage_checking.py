@@ -20,7 +20,6 @@ try:
 except ImportError:
     HAS_PYBEDTOOLS = False
     BedTool = None
-    logging.warning("pybedtools not available - coverage checking may be limited")
 
 from Bio import SeqIO
 from Bio.Seq import Seq
