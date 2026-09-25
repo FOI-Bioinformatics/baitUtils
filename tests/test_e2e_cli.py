@@ -30,8 +30,22 @@ class TestStats:
         df = pd.read_csv(tsv, sep="\t")
         assert len(df) == dataset["expected"]["n_baits"]
         assert (df["length"] == 120).all()
+        assert {"hairpin_dg", "self_dimer_dg", "melting_temperature"} <= set(df.columns)
+        assert "mfe" not in df.columns
         assert (out / "summary.txt").exists()
         assert (out / "filtered_sequences.fasta").read_text().count(">") == len(df)
+
+    def test_stats_dimer_filter_removes_palindromes(self, dataset, tmp_path, run_cli):
+        pytest.importorskip("RNA")
+        fasta = tmp_path / "baits.fa"
+        # A/C-only sequence cannot pair with itself; the palindrome forms a full duplex
+        fasta.write_text(">plain\n" + "AACCCAACAC" * 12 + "\n>palindrome\n" + "GAATTCGGATCCGAATTC" * 6 + "GAATTCGGATCC\n")
+        out = tmp_path / "stats"
+        run_cli(["stats", "-i", fasta, "-o", out, "--filter", "--min-dimer-dg", "-15"])
+        df = pd.read_csv(out / "sequence_statistics.tsv", sep="\t")
+        kept = dict(zip(df["sequence_id"], df["kept"]))
+        assert kept["palindrome"] == False  # noqa: E712
+        assert kept["plain"] == True  # noqa: E712
 
     def test_stats_reports_melting_temperature(self, dataset, tmp_path, run_cli):
         out = tmp_path / "stats"

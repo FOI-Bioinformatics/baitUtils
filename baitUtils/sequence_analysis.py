@@ -85,19 +85,15 @@ class SequenceAnalyzer:
             logging.debug(f"Tm calculation error for sequence: {e}")
             return 'NA'
     
-    def calculate_mfe(self, sequence: str) -> Union[float, str]:
+    def calculate_hairpin_dg(self, sequence: str) -> Union[float, str]:
         """
-        Calculate Minimum Free Energy using ViennaRNA (if available).
-        
-        Args:
-            sequence: DNA sequence string
-            
-        Returns:
-            MFE value in kcal/mol or 'NA' if calculation fails or ViennaRNA unavailable
+        Minimum free energy of intramolecular folding (hairpin) in kcal/mol,
+        computed with ViennaRNA DNA parameters at the hybridization
+        temperature. Values near zero indicate little stable structure.
+        Returns 'NA' when ViennaRNA is unavailable.
         """
         if not HAS_VIENNA_RNA:
             return 'NA'
-        
         try:
             md = RNA.md()
             md.temperature = self.hybridization_temp
@@ -105,8 +101,31 @@ class SequenceAnalyzer:
             structure, mfe = fc.mfe()
             return float(mfe)
         except Exception as e:
-            logging.debug(f"MFE calculation error for sequence: {e}")
+            logging.debug(f"Hairpin dG calculation error for sequence: {e}")
             return 'NA'
+    
+    def calculate_self_dimer_dg(self, sequence: str) -> Union[float, str]:
+        """
+        Minimum free energy of the homodimer (two copies of the sequence)
+        in kcal/mol, computed with ViennaRNA cofolding using DNA parameters
+        at the hybridization temperature. Returns 'NA' when ViennaRNA is
+        unavailable.
+        """
+        if not HAS_VIENNA_RNA:
+            return 'NA'
+        try:
+            md = RNA.md()
+            md.temperature = self.hybridization_temp
+            seq = sequence.upper()
+            fc = RNA.fold_compound(f"{seq}&{seq}", md)
+            structure, mfe = fc.mfe_dimer()
+            return float(mfe)
+        except Exception as e:
+            logging.debug(f"Self-dimer dG calculation error for sequence: {e}")
+            return 'NA'
+    
+    # Backwards-compatible name
+    calculate_mfe = calculate_hairpin_dg
     
     def calculate_self_alignment_score(self, sequence: str) -> Union[float, str]:
         """
@@ -282,7 +301,8 @@ class SequenceAnalyzer:
             'length': len(sequence),
             'gc_content': self.calculate_gc_content(sequence),
             'melting_temperature': self.calculate_melting_temperature(sequence),
-            'mfe': self.calculate_mfe(sequence),
+            'hairpin_dg': self.calculate_hairpin_dg(sequence),
+            'self_dimer_dg': self.calculate_self_dimer_dg(sequence),
             'entropy': self.calculate_entropy(sequence),
             'complexity_2mer': self.calculate_complexity(sequence, k=2),
             'complexity_3mer': self.calculate_complexity(sequence, k=3),
