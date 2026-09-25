@@ -3,716 +3,270 @@
 """
 reference_analyzer.py
 
-Reference sequence feature analysis for enhanced coverage evaluation.
-Analyzes reference sequence characteristics to identify challenging regions
-and correlate with coverage performance.
+Reference sequence features and their relation to observed coverage.
+
+Sequence-level features are computed per reference with vectorized numpy
+routines (sequence_features.py). Window-level features are computed on
+non-overlapping windows and, when per-base coverage arrays are supplied,
+each window also carries its mean depth and breadth. Correlations between
+features and coverage are Spearman rank correlations across all windows,
+with the number of windows and a p-value reported. Without coverage arrays
+the correlations are reported as not applicable.
+
+Challenging references are flagged from sequence-level features with stated
+thresholds; challenging windows are windows with low breadth that also show
+an extreme feature value.
 """
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
-import numpy as np
-from collections import Counter
+from typing import Any, Dict, List, Optional
 
+import numpy as np
+from scipy import stats
 from Bio import SeqIO
-from Bio.SeqUtils import gc_fraction
+
+from baitUtils.sequence_features import (
+    encode, sequence_summary, window_features, window_coverage,
+)
 
 
 class ReferenceAnalyzer:
-    """Analyze reference sequence features and their correlation with coverage."""
-    
+    """Analyze reference sequence features and their relation to coverage."""
+
+    # Thresholds used to flag challenging sequences and windows
+    EXTREME_GC_LOW = 20.0
+    EXTREME_GC_HIGH = 80.0
+    LOW_ENTROPY = 1.0
+    HIGH_REPEAT = 30.0
+    LONG_HOMOPOLYMER = 10
+    HIGH_N = 5.0
+    LOW_BREADTH_WINDOW = 50.0
+    WINDOW_FEATURES = ("gc_content", "entropy", "homopolymer_content", "repeat_density", "n_content")
+
     def __init__(
         self,
         reference_file: Path,
         coverage_data: Dict[str, Any],
         window_size: int = 1000,
-        overlap: int = 500
+        overlap: int = 0,
+        coverage_arrays: Optional[Dict[str, np.ndarray]] = None,
+        min_coverage: float = 1.0,
+        max_challenging_windows: int = 200,
     ):
         """
-        Initialize the reference analyzer.
-        
         Args:
-            reference_file: Path to reference FASTA file
-            coverage_data: Coverage statistics from CoverageAnalyzer
-            window_size: Window size for sliding window analysis
-            overlap: Overlap between adjacent windows
+            reference_file: Reference FASTA
+            coverage_data: Output of CoverageAnalyzer.analyze (per-reference stats)
+            window_size: Window length in bp
+            overlap: Overlap between windows in bp (0 gives non-overlapping windows)
+            coverage_arrays: Per-base depth arrays keyed by reference id
+            min_coverage: Depth at which a base counts as covered
+            max_challenging_windows: Cap on reported challenging windows per reference
         """
         self.reference_file = Path(reference_file)
-        self.coverage_data = coverage_data
-        self.window_size = window_size
-        self.overlap = overlap
-        self.step_size = window_size - overlap
-        
-        # Data storage
-        self.reference_sequences = {}
-        self.sequence_features = {}
-        self.window_features = {}
-        self.coverage_correlations = {}
-        self.challenging_regions = {}
-    
+        self.coverage_data = coverage_data or {}
+        self.window_size = int(window_size)
+        self.overlap = int(overlap)
+        self.step_size = max(1, self.window_size - self.overlap)
+        self.coverage_arrays = coverage_arrays or {}
+        self.min_coverage = min_coverage
+        self.max_challenging_windows = max_challenging_windows
+
+        self.reference_sequences: Dict[str, str] = {}
+        self.sequence_features: Dict[str, Dict[str, float]] = {}
+        self.window_features: Dict[str, Dict[str, np.ndarray]] = {}
+        self.coverage_correlations: Dict[str, Any] = {}
+        self.challenging_regions: Dict[str, Dict[str, Any]] = {}
+        self.challenging_windows: Dict[str, List[Dict[str, Any]]] = {}
+
+    # ------------------------------------------------------------------ main
     def analyze(self) -> Dict[str, Any]:
-        """
-        Perform comprehensive reference sequence analysis.
-        
-        Returns:
-            Dictionary containing reference analysis results
-        """
+        """Run the analysis and return a dictionary of results."""
         logging.info("Analyzing reference sequence features...")
-        
         self._load_reference_sequences()
         self._analyze_sequence_features()
         self._perform_window_analysis()
         self._correlate_with_coverage()
         self._identify_challenging_regions()
-        
         return {
-            'sequence_features': self.sequence_features,
-            'window_features': self.window_features,
-            'coverage_correlations': self.coverage_correlations,
-            'challenging_regions': self.challenging_regions,
-            'analysis_summary': self._generate_summary()
+            "sequence_features": self.sequence_features,
+            "window_features": {ref: self._windows_as_records(ref) for ref in self.window_features},
+            "coverage_correlations": self.coverage_correlations,
+            "challenging_regions": self.challenging_regions,
+            "challenging_windows": self.challenging_windows,
+            "analysis_summary": self._generate_summary(),
         }
-    
+
     def _load_reference_sequences(self) -> None:
-        """Load and store reference sequences."""
-        try:
-            with open(self.reference_file, 'r') as handle:
-                for record in SeqIO.parse(handle, 'fasta'):
-                    self.reference_sequences[record.id] = str(record.seq).upper()
-            
-            logging.info(f"Loaded {len(self.reference_sequences)} reference sequences")
-            
-        except Exception as e:
-            logging.error(f"Error loading reference sequences: {e}")
-            raise
-    
+        with open(self.reference_file) as handle:
+            for record in SeqIO.parse(handle, "fasta"):
+                self.reference_sequences[record.id] = str(record.seq)
+        logging.info(f"Loaded {len(self.reference_sequences)} reference sequences")
+
+    # -------------------------------------------------------------- features
     def _analyze_sequence_features(self) -> None:
-        """Analyze comprehensive features for each reference sequence."""
         for ref_id, sequence in self.reference_sequences.items():
-            features = self._calculate_comprehensive_features(sequence)
+            features = sequence_summary(sequence)
             self.sequence_features[ref_id] = features
-        
+        # problematic_score needs the window features; filled in below
         logging.info("Sequence-level features analyzed")
-    
-    def _calculate_comprehensive_features(self, sequence: str) -> Dict[str, Any]:
-        """Calculate comprehensive sequence features."""
-        if not sequence:
-            return self._empty_features()
-        
-        features = {}
-        
-        # Basic composition
-        features.update(self._analyze_composition(sequence))
-        
-        # Complexity metrics
-        features.update(self._analyze_complexity(sequence))
-        
-        # Structural features
-        features.update(self._analyze_structure(sequence))
-        
-        # Repetitive elements
-        features.update(self._analyze_repeats(sequence))
-        
-        # Problematic regions
-        features.update(self._analyze_problematic_regions(sequence))
-        
-        return features
-    
-    def _analyze_composition(self, sequence: str) -> Dict[str, float]:
-        """Analyze nucleotide composition features."""
-        if not sequence:
-            return {'gc_content': 0, 'at_content': 0, 'n_content': 0, 'length': 0}
-        
-        length = len(sequence)
-        
-        # Base composition
-        gc_content = gc_fraction(sequence) * 100
-        at_content = 100 - gc_content
-        n_content = (sequence.count('N') / length) * 100
-        
-        # Dinucleotide composition
-        dinuc_counts = Counter()
-        for i in range(len(sequence) - 1):
-            dinuc = sequence[i:i+2]
-            if 'N' not in dinuc:
-                dinuc_counts[dinuc] += 1
-        
-        # CpG content (important for many analyses)
-        cpg_observed = dinuc_counts.get('CG', 0)
-        cpg_expected = (sequence.count('C') * sequence.count('G')) / length if length > 0 else 0
-        cpg_ratio = (cpg_observed / cpg_expected) if cpg_expected > 0 else 0
-        
-        # Dinucleotide skew
-        dinuc_skew = self._calculate_dinucleotide_skew(sequence)
-        
-        return {
-            'gc_content': gc_content,
-            'at_content': at_content,
-            'n_content': n_content,
-            'length': length,
-            'cpg_ratio': cpg_ratio,
-            'cpg_observed': cpg_observed,
-            'cpg_expected': cpg_expected,
-            'dinuc_skew': dinuc_skew
-        }
-    
-    def _analyze_complexity(self, sequence: str) -> Dict[str, float]:
-        """Analyze sequence complexity metrics."""
-        if not sequence:
-            return {'shannon_entropy': 0, 'linguistic_complexity': 0, 
-                   'effective_length': 0, 'compression_ratio': 0}
-        
-        # Shannon entropy
-        shannon_entropy = self._calculate_shannon_entropy(sequence)
-        
-        # Linguistic complexity (approximate)
-        linguistic_complexity = self._calculate_linguistic_complexity(sequence)
-        
-        # Effective sequence length (non-repetitive content)
-        effective_length = self._estimate_effective_length(sequence)
-        
-        # Compression ratio (estimate of redundancy)
-        compression_ratio = effective_length / len(sequence) if len(sequence) > 0 else 0
-        
-        return {
-            'shannon_entropy': shannon_entropy,
-            'linguistic_complexity': linguistic_complexity,
-            'effective_length': effective_length,
-            'compression_ratio': compression_ratio
-        }
-    
-    def _analyze_structure(self, sequence: str) -> Dict[str, Any]:
-        """Analyze structural features of the sequence."""
-        if not sequence:
-            return {'max_homopolymer': 0, 'homopolymer_regions': [], 
-                   'tandem_repeats': 0, 'inverted_repeats': 0}
-        
-        # Homopolymer analysis
-        max_homopolymer, homopolymer_regions = self._analyze_homopolymers(sequence)
-        
-        # Simple tandem repeat detection
-        tandem_repeats = self._count_tandem_repeats(sequence)
-        
-        # Inverted repeat detection (palindromes)
-        inverted_repeats = self._count_inverted_repeats(sequence)
-        
-        # Secondary structure potential (simplified)
-        structure_potential = self._estimate_structure_potential(sequence)
-        
-        return {
-            'max_homopolymer': max_homopolymer,
-            'homopolymer_regions': len(homopolymer_regions),
-            'tandem_repeats': tandem_repeats,
-            'inverted_repeats': inverted_repeats,
-            'structure_potential': structure_potential
-        }
-    
-    def _analyze_repeats(self, sequence: str) -> Dict[str, Any]:
-        """Analyze repetitive elements in the sequence."""
-        if not sequence:
-            return {'repeat_content': 0, 'simple_repeats': 0, 'complex_repeats': 0}
-        
-        # Simple repeat content
-        simple_repeats = self._count_simple_repeats(sequence)
-        
-        # Complex repeat patterns
-        complex_repeats = self._count_complex_repeats(sequence)
-        
-        # Overall repeat content estimate
-        repeat_content = (simple_repeats + complex_repeats) / len(sequence) * 100
-        
-        return {
-            'repeat_content': repeat_content,
-            'simple_repeats': simple_repeats,
-            'complex_repeats': complex_repeats
-        }
-    
-    def _analyze_problematic_regions(self, sequence: str) -> Dict[str, Any]:
-        """Identify potentially problematic regions for oligo design."""
-        if not sequence:
-            return {'extreme_gc_regions': 0, 'low_complexity_regions': 0,
-                   'masked_regions': 0, 'problematic_score': 0}
-        
-        # Extreme GC content regions (sliding window)
-        extreme_gc_regions = self._count_extreme_gc_regions(sequence)
-        
-        # Low complexity regions
-        low_complexity_regions = self._count_low_complexity_regions(sequence)
-        
-        # Masked regions (lowercase or N's)
-        masked_regions = self._count_masked_regions(sequence)
-        
-        # Overall problematic score
-        total_problematic = extreme_gc_regions + low_complexity_regions + masked_regions
-        problematic_score = total_problematic / len(sequence) * 100
-        
-        return {
-            'extreme_gc_regions': extreme_gc_regions,
-            'low_complexity_regions': low_complexity_regions,
-            'masked_regions': masked_regions,
-            'problematic_score': problematic_score
-        }
-    
+
     def _perform_window_analysis(self) -> None:
-        """Perform sliding window analysis of sequence features."""
         for ref_id, sequence in self.reference_sequences.items():
-            windows = []
-            
-            for start in range(0, len(sequence) - self.window_size + 1, self.step_size):
-                end = start + self.window_size
-                window_seq = sequence[start:end]
-                
-                window_features = {
-                    'start': start,
-                    'end': end,
-                    'length': len(window_seq)
-                }
-                
-                # Calculate features for this window
-                window_features.update(self._calculate_window_features(window_seq))
-                windows.append(window_features)
-            
+            codes = encode(sequence)
+            windows = window_features(codes, self.window_size, self.step_size)
+            if ref_id in self.coverage_arrays:
+                windows.update(window_coverage(self.coverage_arrays[ref_id], self.window_size,
+                                               self.step_size, self.min_coverage))
             self.window_features[ref_id] = windows
-        
+
+            flagged = self._flag_windows(windows)
+            n_windows = int(windows["start"].size)
+            self.sequence_features[ref_id]["problematic_score"] = (
+                float(flagged.any(axis=0).mean() * 100.0) if n_windows else 0.0)
+            self.sequence_features[ref_id]["windows"] = n_windows
         logging.info("Window-based analysis completed")
-    
-    def _calculate_window_features(self, window_seq: str) -> Dict[str, float]:
-        """Calculate features for a sequence window."""
-        if not window_seq:
-            return {'gc_content': 0, 'complexity': 0, 'repeat_density': 0}
-        
-        # Basic features for the window
-        gc_content = gc_fraction(window_seq) * 100
-        complexity = self._calculate_shannon_entropy(window_seq)
-        
-        # Repeat density in window
-        repeat_density = self._calculate_repeat_density(window_seq)
-        
-        # Homopolymer density
-        homopolymer_density = self._calculate_homopolymer_density(window_seq)
-        
-        return {
-            'gc_content': gc_content,
-            'complexity': complexity,
-            'repeat_density': repeat_density,
-            'homopolymer_density': homopolymer_density
-        }
-    
+
+    def _flag_windows(self, windows: Dict[str, np.ndarray]) -> np.ndarray:
+        """Boolean matrix (5 flags x windows) of extreme feature values."""
+        n = windows["start"].size
+        if n == 0:
+            return np.zeros((5, 0), dtype=bool)
+        return np.stack([
+            (windows["gc_content"] < self.EXTREME_GC_LOW) | (windows["gc_content"] > self.EXTREME_GC_HIGH),
+            windows["entropy"] < self.LOW_ENTROPY,
+            windows["repeat_density"] > self.HIGH_REPEAT,
+            windows["homopolymer_content"] > 10.0,
+            windows["n_content"] > self.HIGH_N,
+        ])
+
+    FLAG_NAMES = ("extreme GC", "low complexity", "repetitive", "homopolymer-rich", "N-rich")
+
+    # ---------------------------------------------------------- correlations
     def _correlate_with_coverage(self) -> None:
-        """Correlate sequence features with coverage performance."""
-        per_ref_stats = self.coverage_data.get('per_reference', {})
-        
-        for ref_id in self.reference_sequences.keys():
-            if ref_id not in per_ref_stats:
-                continue
-            
-            ref_coverage_stats = per_ref_stats[ref_id]
-            ref_features = self.sequence_features.get(ref_id, {})
-            
-            correlations = self._calculate_feature_correlations(ref_features, ref_coverage_stats)
-            self.coverage_correlations[ref_id] = correlations
-        
-        logging.info("Coverage-feature correlations calculated")
-    
-    def _calculate_feature_correlations(
-        self, 
-        features: Dict[str, Any], 
-        coverage_stats: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Calculate correlations between sequence features and coverage."""
-        correlations = {}
-        
-        # Coverage quality metrics
-        coverage_breadth = coverage_stats.get('coverage_breadth', 0)
-        gap_count = coverage_stats.get('gaps', 0)
-        
-        # Correlate with sequence features
-        correlations.update({
-            'gc_vs_coverage': self._correlate_gc_coverage(features.get('gc_content', 50), coverage_breadth),
-            'complexity_vs_coverage': self._correlate_complexity_coverage(features.get('shannon_entropy', 1.5), coverage_breadth),
-            'repeats_vs_gaps': self._correlate_repeats_gaps(features.get('repeat_content', 0), gap_count),
-            'problematic_vs_coverage': self._correlate_problematic_coverage(features.get('problematic_score', 0), coverage_breadth)
-        })
-        
-        return correlations
-    
-    def _identify_challenging_regions(self) -> None:
-        """Identify regions that are challenging for oligo design."""
-        for ref_id, features in self.sequence_features.items():
-            challenging_score = 0
-            reasons = []
-            
-            # Extreme GC content
-            gc_content = features.get('gc_content', 50)
-            if gc_content < 20 or gc_content > 80:
-                challenging_score += 2
-                reasons.append(f"Extreme GC content ({gc_content:.1f}%)")
-            
-            # Low complexity
-            if features.get('shannon_entropy', 2) < 1.0:
-                challenging_score += 2
-                reasons.append("Low sequence complexity")
-            
-            # High repeat content
-            if features.get('repeat_content', 0) > 30:
-                challenging_score += 1
-                reasons.append("High repetitive content")
-            
-            # Long homopolymers
-            if features.get('max_homopolymer', 0) > 10:
-                challenging_score += 1
-                reasons.append("Long homopolymer runs")
-            
-            # High N content
-            if features.get('n_content', 0) > 5:
-                challenging_score += 1
-                reasons.append("High N content")
-            
-            # Problematic regions
-            if features.get('problematic_score', 0) > 20:
-                challenging_score += 1
-                reasons.append("Multiple problematic features")
-            
-            self.challenging_regions[ref_id] = {
-                'challenging_score': challenging_score,
-                'reasons': reasons,
-                'difficulty_level': self._get_difficulty_level(challenging_score)
+        """Spearman correlation between window features and window coverage, pooled over references."""
+        refs = [r for r in self.window_features if "breadth" in self.window_features[r]]
+        if not refs:
+            self.coverage_correlations = {
+                "applicable": False,
+                "reason": "no per-base coverage arrays supplied",
+                "windows": 0, "window_size": self.window_size, "features": {},
             }
-    
-    def _get_difficulty_level(self, score: int) -> str:
-        """Convert challenging score to difficulty level."""
+            logging.info("Coverage correlations not applicable: no coverage arrays")
+            return
+
+        pooled = {key: np.concatenate([self.window_features[r][key] for r in refs])
+                  for key in self.WINDOW_FEATURES + ("breadth", "mean_depth")}
+        n = int(pooled["breadth"].size)
+        features: Dict[str, Dict[str, float]] = {}
+        for name in self.WINDOW_FEATURES:
+            x = pooled[name]
+            entry: Dict[str, float] = {}
+            for target in ("breadth", "mean_depth"):
+                y = pooled[target]
+                if n < 3 or np.all(x == x[0]) or np.all(y == y[0]):
+                    entry[f"rho_{target}"] = float("nan")
+                    entry[f"p_{target}"] = float("nan")
+                else:
+                    rho, p = stats.spearmanr(x, y)
+                    entry[f"rho_{target}"] = float(rho)
+                    entry[f"p_{target}"] = float(p)
+            features[name] = entry
+
+        # Breadth by GC decile, a direct view of composition effects
+        gc = pooled["gc_content"]
+        edges = np.arange(0, 101, 10)
+        gc_bins = []
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            sel = (gc >= lo) & ((gc < hi) if hi < 100 else (gc <= hi))
+            if sel.any():
+                gc_bins.append({
+                    "gc_min": int(lo), "gc_max": int(hi), "windows": int(sel.sum()),
+                    "mean_breadth": float(pooled["breadth"][sel].mean()),
+                    "mean_depth": float(pooled["mean_depth"][sel].mean()),
+                })
+
+        self.coverage_correlations = {
+            "applicable": n >= 3,
+            "method": "Spearman rank correlation across windows",
+            "windows": n, "window_size": self.window_size,
+            "features": features, "breadth_by_gc": gc_bins,
+        }
+        logging.info(f"Coverage-feature correlations computed over {n} windows")
+
+    # ------------------------------------------------------------ challenging
+    def _identify_challenging_regions(self) -> None:
+        for ref_id, features in self.sequence_features.items():
+            score = 0
+            reasons = []
+            gc = features["gc_content"]
+            if gc < self.EXTREME_GC_LOW or gc > self.EXTREME_GC_HIGH:
+                score += 2
+                reasons.append(f"Extreme GC content ({gc:.1f}%)")
+            if features["shannon_entropy"] < self.LOW_ENTROPY:
+                score += 2
+                reasons.append("Low sequence complexity")
+            if features["repeat_content"] > self.HIGH_REPEAT:
+                score += 1
+                reasons.append(f"High repetitive content ({features['repeat_content']:.1f}% duplicated 12-mers)")
+            if features["max_homopolymer"] > self.LONG_HOMOPOLYMER:
+                score += 1
+                reasons.append(f"Long homopolymer runs (max {features['max_homopolymer']} bp)")
+            if features["n_content"] > self.HIGH_N:
+                score += 1
+                reasons.append(f"High N content ({features['n_content']:.1f}%)")
+            if features.get("problematic_score", 0.0) > 20.0:
+                score += 1
+                reasons.append(f"{features['problematic_score']:.0f}% of windows show an extreme feature")
+            self.challenging_regions[ref_id] = {
+                "challenging_score": score,
+                "reasons": reasons,
+                "difficulty_level": self._get_difficulty_level(score),
+            }
+
+            windows = self.window_features.get(ref_id, {})
+            if "breadth" in windows and windows["start"].size:
+                flagged = self._flag_windows(windows)
+                low = windows["breadth"] < self.LOW_BREADTH_WINDOW
+                hits = np.flatnonzero(low & flagged.any(axis=0))
+                self.challenging_windows[ref_id] = [{
+                    "start": int(windows["start"][i]), "end": int(windows["end"][i]),
+                    "breadth": float(windows["breadth"][i]),
+                    "reasons": [name for name, f in zip(self.FLAG_NAMES, flagged[:, i]) if f],
+                } for i in hits[:self.max_challenging_windows]]
+
+    @staticmethod
+    def _get_difficulty_level(score: int) -> str:
         if score >= 5:
             return "Very Difficult"
-        elif score >= 3:
+        if score >= 3:
             return "Difficult"
-        elif score >= 1:
+        if score >= 1:
             return "Moderate"
-        else:
-            return "Easy"
-    
+        return "Easy"
+
+    # ---------------------------------------------------------------- output
+    def _windows_as_records(self, ref_id: str) -> List[Dict[str, float]]:
+        windows = self.window_features[ref_id]
+        keys = list(windows)
+        return [{k: (int(windows[k][i]) if k in ("start", "end") else float(windows[k][i])) for k in keys}
+                for i in range(int(windows["start"].size))]
+
     def _generate_summary(self) -> Dict[str, Any]:
-        """Generate summary of reference analysis."""
         if not self.sequence_features:
             return {}
-        
-        # Aggregate statistics
-        all_features = list(self.sequence_features.values())
-        
-        summary = {
-            'total_sequences': len(all_features),
-            'mean_gc_content': np.mean([f.get('gc_content', 50) for f in all_features]),
-            'mean_complexity': np.mean([f.get('shannon_entropy', 1.5) for f in all_features]),
-            'sequences_with_extreme_gc': sum(1 for f in all_features 
-                                           if f.get('gc_content', 50) < 20 or f.get('gc_content', 50) > 80),
-            'sequences_with_high_repeats': sum(1 for f in all_features 
-                                             if f.get('repeat_content', 0) > 30),
-            'challenging_sequences': sum(1 for r in self.challenging_regions.values() 
-                                       if r.get('challenging_score', 0) >= 3)
-        }
-        
-        return summary
-    
-    # Helper methods for feature calculations
-    def _calculate_shannon_entropy(self, sequence: str) -> float:
-        """Calculate Shannon entropy of sequence."""
-        if not sequence:
-            return 0.0
-        
-        counts = Counter(sequence)
-        total = len(sequence)
-        
-        entropy = 0.0
-        for count in counts.values():
-            if count > 0:
-                p = count / total
-                entropy -= p * np.log2(p)
-        
-        return entropy
-    
-    def _calculate_dinucleotide_skew(self, sequence: str) -> float:
-        """Calculate dinucleotide composition skew."""
-        if len(sequence) < 2:
-            return 0.0
-        
-        dinuc_counts = Counter()
-        for i in range(len(sequence) - 1):
-            dinuc = sequence[i:i+2]
-            if 'N' not in dinuc:
-                dinuc_counts[dinuc] += 1
-        
-        if not dinuc_counts:
-            return 0.0
-        
-        counts = list(dinuc_counts.values())
-        return np.std(counts) / np.mean(counts) if np.mean(counts) > 0 else 0.0
-    
-    def _calculate_linguistic_complexity(self, sequence: str) -> float:
-        """Calculate linguistic complexity (simplified)."""
-        if len(sequence) < 10:
-            return 0.0
-        
-        # Count unique k-mers of different lengths
-        complexity_scores = []
-        for k in [2, 3, 4]:
-            if len(sequence) >= k:
-                kmers = set()
-                for i in range(len(sequence) - k + 1):
-                    kmers.add(sequence[i:i+k])
-                
-                max_possible = min(4**k, len(sequence) - k + 1)
-                complexity_scores.append(len(kmers) / max_possible)
-        
-        return np.mean(complexity_scores) if complexity_scores else 0.0
-    
-    def _estimate_effective_length(self, sequence: str) -> float:
-        """Estimate effective (non-repetitive) sequence length."""
-        if len(sequence) < 20:
-            return len(sequence)
-        
-        # Use 6-mer frequency to estimate repetitiveness
-        kmers = Counter()
-        k = 6
-        
-        for i in range(len(sequence) - k + 1):
-            kmer = sequence[i:i+k]
-            if 'N' not in kmer:
-                kmers[kmer] += 1
-        
-        # Count unique positions
-        unique_positions = sum(1 for count in kmers.values() if count == 1) * k
-        return max(unique_positions, len(sequence) * 0.1)  # At least 10% unique
-    
-    def _analyze_homopolymers(self, sequence: str) -> Tuple[int, List[Tuple[int, int, str]]]:
-        """Analyze homopolymer runs in sequence."""
-        if not sequence:
-            return 0, []
-        
-        max_length = 0
-        regions = []
-        
-        current_base = sequence[0]
-        current_length = 1
-        start_pos = 0
-        
-        for i in range(1, len(sequence)):
-            if sequence[i] == current_base:
-                current_length += 1
-            else:
-                if current_length >= 5:  # Report homopolymers >= 5bp
-                    regions.append((start_pos, start_pos + current_length, current_base))
-                    max_length = max(max_length, current_length)
-                
-                current_base = sequence[i]
-                current_length = 1
-                start_pos = i
-        
-        # Handle last homopolymer
-        if current_length >= 5:
-            regions.append((start_pos, start_pos + current_length, current_base))
-            max_length = max(max_length, current_length)
-        
-        return max_length, regions
-    
-    def _count_tandem_repeats(self, sequence: str) -> int:
-        """Count simple tandem repeats."""
-        if len(sequence) < 6:
-            return 0
-        
-        repeat_count = 0
-        
-        # Look for 2-6 bp repeats
-        for unit_size in range(2, 7):
-            for i in range(len(sequence) - unit_size * 2 + 1):
-                unit = sequence[i:i+unit_size]
-                if 'N' in unit:
-                    continue
-                
-                # Check if this unit repeats
-                repeats = 1
-                pos = i + unit_size
-                
-                while pos + unit_size <= len(sequence) and sequence[pos:pos+unit_size] == unit:
-                    repeats += 1
-                    pos += unit_size
-                
-                if repeats >= 3:  # At least 3 copies
-                    repeat_count += repeats * unit_size
-        
-        return repeat_count
-    
-    def _count_inverted_repeats(self, sequence: str) -> int:
-        """Count inverted repeats (palindromes)."""
-        if len(sequence) < 6:
-            return 0
-        
-        complement = str.maketrans('ATGC', 'TACG')
-        inverted_count = 0
-        
-        # Look for palindromes of 6+ bp
-        for length in range(6, min(21, len(sequence) // 2 + 1)):
-            for i in range(len(sequence) - length + 1):
-                subseq = sequence[i:i+length]
-                if 'N' in subseq:
-                    continue
-                
-                # Check if it's a palindrome
-                reverse_complement = subseq.translate(complement)[::-1]
-                if subseq == reverse_complement:
-                    inverted_count += 1
-        
-        return inverted_count
-    
-    def _estimate_structure_potential(self, sequence: str) -> float:
-        """Estimate secondary structure formation potential."""
-        if len(sequence) < 20:
-            return 0.0
-        
-        # Simple estimate based on GC content and palindromes
-        gc_content = gc_fraction(sequence)
-        palindromes = self._count_inverted_repeats(sequence)
-        
-        # Higher GC content and more palindromes = higher structure potential
-        structure_score = (gc_content * 0.7) + (palindromes / len(sequence) * 100 * 0.3)
-        
-        return min(structure_score, 1.0)
-    
-    def _count_simple_repeats(self, sequence: str) -> int:
-        """Count simple repetitive elements."""
-        # This is a simplified implementation
-        return self._count_tandem_repeats(sequence)
-    
-    def _count_complex_repeats(self, sequence: str) -> int:
-        """Count complex repetitive patterns."""
-        if len(sequence) < 20:
-            return 0
-        
-        # Look for longer repeated sequences
-        complex_repeats = 0
-        
-        for length in range(10, min(51, len(sequence) // 2)):
-            seen = set()
-            for i in range(len(sequence) - length + 1):
-                subseq = sequence[i:i+length]
-                if 'N' in subseq:
-                    continue
-                
-                if subseq in seen:
-                    complex_repeats += length
-                else:
-                    seen.add(subseq)
-        
-        return complex_repeats
-    
-    def _count_extreme_gc_regions(self, sequence: str, window=50) -> int:
-        """Count regions with extreme GC content."""
-        if len(sequence) < window:
-            return 0
-        
-        extreme_regions = 0
-        
-        for i in range(len(sequence) - window + 1):
-            subseq = sequence[i:i+window]
-            gc_content = gc_fraction(subseq) * 100
-            
-            if gc_content < 20 or gc_content > 80:
-                extreme_regions += 1
-        
-        return extreme_regions
-    
-    def _count_low_complexity_regions(self, sequence: str, window=50) -> int:
-        """Count low complexity regions."""
-        if len(sequence) < window:
-            return 0
-        
-        low_complexity = 0
-        
-        for i in range(len(sequence) - window + 1):
-            subseq = sequence[i:i+window]
-            entropy = self._calculate_shannon_entropy(subseq)
-            
-            if entropy < 1.0:  # Very low complexity
-                low_complexity += 1
-        
-        return low_complexity
-    
-    def _count_masked_regions(self, sequence: str) -> int:
-        """Count masked or N regions."""
-        return sequence.count('N') + sum(1 for c in sequence if c.islower())
-    
-    def _calculate_repeat_density(self, sequence: str) -> float:
-        """Calculate repeat density for a sequence window."""
-        if len(sequence) < 10:
-            return 0.0
-        
-        repeats = self._count_simple_repeats(sequence) + self._count_complex_repeats(sequence)
-        return repeats / len(sequence) * 100
-    
-    def _calculate_homopolymer_density(self, sequence: str) -> float:
-        """Calculate homopolymer density for a sequence window."""
-        if len(sequence) < 5:
-            return 0.0
-        
-        homopolymer_bases = 0
-        current_run = 1
-        
-        for i in range(1, len(sequence)):
-            if sequence[i] == sequence[i-1]:
-                current_run += 1
-            else:
-                if current_run >= 4:  # Count runs of 4+
-                    homopolymer_bases += current_run
-                current_run = 1
-        
-        # Handle final run
-        if current_run >= 4:
-            homopolymer_bases += current_run
-        
-        return homopolymer_bases / len(sequence) * 100
-    
-    def _correlate_gc_coverage(self, gc_content: float, coverage_breadth: float) -> Dict[str, float]:
-        """Correlate GC content with coverage performance."""
-        # Optimal GC range is typically 40-60%
-        optimal_distance = min(abs(gc_content - 40), abs(gc_content - 60))
-        if 40 <= gc_content <= 60:
-            optimal_distance = 0
-        
+        feats = list(self.sequence_features.values())
         return {
-            'gc_content': gc_content,
-            'coverage_breadth': coverage_breadth,
-            'optimal_distance': optimal_distance,
-            'correlation_strength': max(0, 1 - (optimal_distance / 30))  # Normalize
-        }
-    
-    def _correlate_complexity_coverage(self, complexity: float, coverage_breadth: float) -> Dict[str, float]:
-        """Correlate sequence complexity with coverage."""
-        # Higher complexity generally better for oligo design
-        return {
-            'complexity': complexity,
-            'coverage_breadth': coverage_breadth,
-            'complexity_score': min(complexity / 2.0, 1.0)  # Normalize to 0-1
-        }
-    
-    def _correlate_repeats_gaps(self, repeat_content: float, gap_count: int) -> Dict[str, float]:
-        """Correlate repeat content with coverage gaps."""
-        return {
-            'repeat_content': repeat_content,
-            'gap_count': gap_count,
-            'negative_correlation': repeat_content / 100  # Higher repeats = more gaps
-        }
-    
-    def _correlate_problematic_coverage(self, problematic_score: float, coverage_breadth: float) -> Dict[str, float]:
-        """Correlate problematic features with coverage."""
-        return {
-            'problematic_score': problematic_score,
-            'coverage_breadth': coverage_breadth,
-            'impact_score': problematic_score / 100  # Higher problematic = lower coverage
-        }
-    
-    def _empty_features(self) -> Dict[str, Any]:
-        """Return empty feature dictionary for invalid sequences."""
-        return {
-            'gc_content': 0, 'at_content': 0, 'n_content': 0, 'length': 0,
-            'shannon_entropy': 0, 'linguistic_complexity': 0,
-            'max_homopolymer': 0, 'repeat_content': 0,
-            'problematic_score': 0
+            "total_sequences": len(feats),
+            "total_length": int(sum(f["length"] for f in feats)),
+            "mean_gc_content": float(np.mean([f["gc_content"] for f in feats])),
+            "mean_complexity": float(np.mean([f["shannon_entropy"] for f in feats])),
+            "sequences_with_extreme_gc": sum(1 for f in feats
+                                             if f["gc_content"] < self.EXTREME_GC_LOW or f["gc_content"] > self.EXTREME_GC_HIGH),
+            "sequences_with_high_repeats": sum(1 for f in feats if f["repeat_content"] > self.HIGH_REPEAT),
+            "challenging_sequences": sum(1 for r in self.challenging_regions.values() if r["challenging_score"] >= 3),
+            "challenging_windows": sum(len(w) for w in self.challenging_windows.values()),
+            "window_size": self.window_size,
+            "correlations_applicable": bool(self.coverage_correlations.get("applicable", False)),
         }

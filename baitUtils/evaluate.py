@@ -242,7 +242,9 @@ def main(args):
             ref_analyzer = ReferenceAnalyzer(
                 reference_file=args.reference,
                 coverage_data=coverage_stats,
-                window_size=args.reference_analysis_window
+                window_size=args.reference_analysis_window,
+                coverage_arrays=analyzer.coverage_arrays,
+                min_coverage=args.min_coverage
             )
             reference_analysis = ref_analyzer.analyze()
 

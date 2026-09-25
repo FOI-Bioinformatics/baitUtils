@@ -147,7 +147,9 @@ class ComparativeAnalyzer:
         if self.reference_analysis is None:
             ref_analyzer = ReferenceAnalyzer(
                 reference_file=self.reference_file,
-                coverage_data=coverage_stats
+                coverage_data=coverage_stats,
+                coverage_arrays=coverage_analyzer.coverage_arrays,
+                min_coverage=self.min_coverage
             )
             self.reference_analysis = ref_analyzer.analyze()
 
