@@ -152,7 +152,8 @@ def main(args):
         min_identity=args.min_identity,
         min_length=args.min_length,
         min_coverage=args.min_coverage,
-        target_coverage=args.target_coverage
+        target_coverage=args.target_coverage,
+        threads=args.threads
     )
     
     # Add each oligo set for analysis

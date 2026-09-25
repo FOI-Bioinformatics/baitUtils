@@ -189,6 +189,31 @@ def filter_hits(hits: Iterable[PSLHit], min_identity: float = 0.0, min_length: i
         yield hit
 
 
+def run_pblat(reference: str, query: str, output_psl: str, threads: int = 1,
+              min_identity: float = 90.0, min_score: int = 30, min_match: int = 2) -> None:
+    """
+    Run pblat and raise RuntimeError on failure.
+
+    When pblat is killed by a signal (negative return code) and more than one
+    thread was requested, the run is retried once with a single thread, since
+    multi-threaded pblat has been observed to die sporadically on small inputs.
+    """
+    def command(n_threads: int) -> List[str]:
+        return ['pblat', f'-threads={n_threads}', f'-minIdentity={min_identity}',
+                f'-minScore={min_score}', f'-minMatch={min_match}',
+                str(reference), str(query), str(output_psl)]
+
+    result = subprocess.run(command(threads), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode < 0 and threads > 1:
+        logging.warning(f"pblat was terminated by signal {-result.returncode} with {threads} threads; "
+                        "retrying with a single thread")
+        result = subprocess.run(command(1), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"pblat failed with return code {result.returncode}: {result.stderr.strip()}")
+    if result.stderr:
+        logging.debug(f"pblat stderr: {result.stderr.strip()}")
+
+
 class SequenceLoader:
     """Handles loading and processing of FASTA sequences."""
     
@@ -253,11 +278,11 @@ class SequenceLoader:
 
 
 class PblatRunner:
-    """Handles running pblat mapping tool."""
+    """Runs pblat for the map command (see run_pblat for the retry behaviour)."""
     
     @staticmethod
     def run_pblat(
-        baits_file: str,
+        input_file: str,
         target_file: str,
         output_file: str,
         threads: int = 1,
@@ -265,43 +290,11 @@ class PblatRunner:
         min_score: int = 30,
         min_identity: int = 90
     ) -> None:
-        """
-        Run pblat to map sequences against target.
-        
-        Args:
-            baits_file: Path to input FASTA file with sequences to map
-            target_file: Path to target FASTA file to map against
-            output_file: Path to output PSL file
-            threads: Number of threads to use
-            min_match: Minimum number of tile matches
-            min_score: Minimum score
-            min_identity: Minimum sequence identity percentage
-        """
-        cmd = [
-            'pblat',
-            f'-threads={threads}',
-            f'-minMatch={min_match}',
-            f'-minScore={min_score}',
-            f'-minIdentity={min_identity}',
-            target_file,
-            baits_file,
-            output_file
-        ]
-
-        logging.info(f"Running pblat: {' '.join(cmd)}")
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, 
-                          stderr=subprocess.DEVNULL)
-            logging.info(f"pblat completed successfully. Output: {output_file}")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"pblat failed with return code {e.returncode}")
-            raise
-        except FileNotFoundError:
-            logging.error("pblat not found in PATH. Please install pblat.")
-            raise
-        except Exception as e:
-            logging.error(f"Error running pblat: {e}")
-            raise
+        """Map input_file (baits) against target_file (reference) into output_file."""
+        logging.info(f"Running pblat with {threads} thread(s)...")
+        run_pblat(target_file, input_file, output_file, threads=threads,
+                  min_identity=min_identity, min_score=min_score, min_match=min_match)
+        logging.info(f"pblat mapping completed: {output_file}")
 
 
 class PSLParser:

@@ -24,6 +24,7 @@ from baitUtils._version import __version__
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
 from baitUtils.json_export import write_json
+from baitUtils.mapping_utils import run_pblat
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer
@@ -361,36 +362,11 @@ def perform_mapping(args, temp_dir: Path) -> Path:
     """Perform oligo mapping using pblat."""
     psl_file = temp_dir / "mapping.psl"
     
-    # Build pblat command
-    cmd = [
-        'pblat',
-        f'-threads={args.threads}',
-        f'-minIdentity={args.min_identity}',
-        '-minScore=30',
-        '-minMatch=2',
-        args.reference,
-        args.input,
-        str(psl_file)
-    ]
-    
-    logging.debug(f"Running pblat command: {' '.join(cmd)}")
-    
     try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if result.stderr:
-            logging.debug(f"pblat stderr: {result.stderr}")
-            
-    except subprocess.CalledProcessError as e:
-        logging.error(f"pblat failed with return code {e.returncode}")
-        if e.stderr:
-            logging.error(f"pblat error: {e.stderr}")
+        run_pblat(args.reference, args.input, str(psl_file), threads=args.threads,
+                  min_identity=args.min_identity)
+    except RuntimeError as e:
+        logging.error(str(e))
         sys.exit(1)
     
     if not psl_file.exists() or psl_file.stat().st_size == 0:

@@ -171,6 +171,14 @@ class SequenceMappingProcessor:
             self.results_writer.write_sequences_fasta(unmapped_sequences, seq_records, fasta_file)
 
 
+def percent(value: str) -> int:
+    """argparse type for an integer percentage between 0 and 100."""
+    number = int(value)
+    if not 0 <= number <= 100:
+        raise argparse.ArgumentTypeError(f"{value} is not between 0 and 100")
+    return number
+
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for sequence mapping."""
     parser.add_argument('--version', action='version', 
@@ -197,14 +205,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help='Number of tile matches (default: 2)')
     parser.add_argument('--minScore', type=int, default=30,
                        help='Minimum score (default: 30)')
-    parser.add_argument('--minIdentity', type=int, default=90,
-                       choices=range(0, 101),
-                       help='Minimum sequence identity percent (default: 90)')
+    parser.add_argument('--minIdentity', type=percent, default=90,
+                       help='Minimum sequence identity percent passed to pblat, 0-100 (default: 90)')
     
     # Filtering parameters
-    parser.add_argument('--filterIdentity', type=int, default=90,
-                       choices=range(0, 101),
-                       help='Filter mappings with identity below this percent '
+    parser.add_argument('--filterIdentity', type=percent, default=90,
+                       help='Filter mappings with identity below this percent, 0-100 '
                             '(must be >= minIdentity, default: 90)')
     parser.add_argument('--minMatchCount', type=int, default=0,
                        help='Minimum number of matching bases required (default: 0)')
