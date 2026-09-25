@@ -88,3 +88,25 @@ class TestPSLParserMappedIds:
         text = out.read_text()
         assert text.startswith("psLayout version 3")
         assert "\tb0\t" in text and "\tL\t" not in text
+
+
+class TestHitTable:
+    def test_hit_table_ranks_hits_per_bait(self, tmp_path):
+        from baitUtils.mapping_utils import build_hit_table
+        second = row(110, 10, 0, 0, 0, 0, 0, 0, "-", "b0", 120, 0, 120, "chrB", 2000, 40, 160, 1, "120,", "0,", "40,")
+        psl = tmp_path / "hits.psl"
+        psl.write_text("\n".join([PERFECT, second, MISMATCH, T_INSERT]) + "\n")
+        table = build_hit_table(parse_psl(psl))
+        assert list(table["oligo_id"]) == ["G", "L", "b0"]
+        b0 = table.set_index("oligo_id").loc["b0"]
+        assert b0["n_hits"] == 2 and b0["n_targets"] == 2
+        assert b0["best_identity"] == 100.0
+        assert b0["second_best_identity"] == pytest.approx(100 - 1000 * 10 / 120 / 10, abs=0.01)
+        assert (b0["best_target"], b0["best_start"], b0["best_end"], b0["best_strand"]) == ("chrA", 0, 120, "+")
+        g = table.set_index("oligo_id").loc["G"]
+        assert g["n_hits"] == 1 and g["second_best_identity"] != g["second_best_identity"]  # NaN
+
+    def test_empty_hit_table_has_columns(self):
+        from baitUtils.mapping_utils import build_hit_table
+        table = build_hit_table([])
+        assert len(table) == 0 and "best_identity" in table.columns

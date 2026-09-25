@@ -65,6 +65,19 @@ class TestMap:
         assert "L_00" in unmapped
         assert all(u in unmapped for u in ("U_00", "U_01", "U_02"))
 
+        hits = pd.read_csv(outdir / "run-hits.tsv", sep="\t")
+        assert len(hits) == dataset["expected"]["n_mapped"]
+        assert (hits["n_hits"] == 1).all()
+        assert hits.set_index("oligo_id").loc["G_00", "best_target"] == "chrB"
+
+    def test_map_max_hits_excludes_multi_mapping_baits(self, dataset, tmp_path, fake_pblat, run_cli):
+        outdir = tmp_path / "map"
+        outdir.mkdir()
+        run_cli(["map", "-i", dataset["baits"], "-q", dataset["reference"],
+                 "-o", "run", "-Z", outdir, "--max-hits", "0"])
+        mapped = (outdir / "run-mapped-sequence-ids.txt").read_text().split()
+        assert mapped == []
+
 
 class TestEvaluate:
     def test_evaluate_runs_end_to_end(self, dataset, tmp_path, fake_pblat, run_cli):
@@ -73,6 +86,18 @@ class TestEvaluate:
         assert (out / "coverage_statistics.txt").exists()
         assert (out / "gap_analysis.txt").exists()
         assert (out / "coverage_evaluation_report.html").exists()
+
+        import json
+        data = json.loads((out / "evaluation.json").read_text())
+        exp = dataset["expected"]
+        assert data["coverage_stats"]["total_oligos"] == exp["n_baits"]
+        assert data["coverage_stats"]["mapped_oligos"] == exp["n_mapped"]
+        assert data["gap_analysis"]["total_gaps"] == 1
+        chrom, start, end = exp["hole"]
+        gap = data["gap_analysis"]["gaps"][0]
+        assert (gap["chromosome"], gap["start"], gap["end"]) == (chrom, start, end)
+        assert 0.0 <= data["quality_score"]["overall_score"] <= 1.0
+        assert set(data["benchmarks"]) == {"coverage_breadth", "depth_uniformity", "gap_reduction"}
 
 
 class TestCompare:
@@ -84,6 +109,13 @@ class TestCompare:
         report = (out / "comparative_analysis_report.html").read_text()
         assert "P-value:</strong> nan" not in report
         assert "Effect Size:</strong> nan" not in report
+
+        import json
+        data = json.loads((out / "comparison.json").read_text())
+        assert [s_["name"] for s_ in data["sets"]] == ["A", "B"]
+        assert data["statistics"]["per_reference_metrics"]["coverage_breadth"]["applicable"] is False
+        assert data["statistics"]["bait_identity"]["applicable"] is False  # identical sets
+        assert data["parameters"]["multiple_comparison_correction"] == "fdr"
         assert "Not applicable" in report  # identical sets: paired tests cannot run
 
 

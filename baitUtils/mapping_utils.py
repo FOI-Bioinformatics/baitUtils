@@ -143,6 +143,41 @@ def parse_psl(psl_path: Union[str, Path]) -> Iterator[PSLHit]:
         logging.warning(f"Skipped {skipped} malformed line(s) in {psl_path}")
 
 
+def build_hit_table(hits: Iterable[PSLHit]) -> "pd.DataFrame":
+    """
+    Summarise hits per query (bait) for off-target assessment.
+
+    Columns: oligo_id, n_hits, n_targets, best_identity, second_best_identity,
+    best_target, best_start, best_end, best_strand, best_aligned_length.
+    Hits are ranked by identity, then aligned length.
+    """
+    import pandas as pd
+
+    per_query: Dict[str, List[PSLHit]] = {}
+    for hit in hits:
+        per_query.setdefault(hit.q_name, []).append(hit)
+
+    rows = []
+    for q_name, q_hits in per_query.items():
+        ranked = sorted(q_hits, key=lambda h: (h.identity, h.aligned_length), reverse=True)
+        best = ranked[0]
+        rows.append({
+            'oligo_id': q_name,
+            'n_hits': len(ranked),
+            'n_targets': len({h.t_name for h in ranked}),
+            'best_identity': round(best.identity, 2),
+            'second_best_identity': round(ranked[1].identity, 2) if len(ranked) > 1 else float('nan'),
+            'best_target': best.t_name,
+            'best_start': best.t_start,
+            'best_end': best.t_end,
+            'best_strand': best.strand,
+            'best_aligned_length': best.aligned_length,
+        })
+    columns = ['oligo_id', 'n_hits', 'n_targets', 'best_identity', 'second_best_identity',
+               'best_target', 'best_start', 'best_end', 'best_strand', 'best_aligned_length']
+    return pd.DataFrame(rows, columns=columns).sort_values('oligo_id').reset_index(drop=True)
+
+
 def filter_hits(hits: Iterable[PSLHit], min_identity: float = 0.0, min_length: int = 0,
                 min_matches: int = 0) -> Iterator[PSLHit]:
     """Keep hits with identity, aligned length and match count at or above the thresholds."""
@@ -270,6 +305,7 @@ class PblatRunner:
 
 
 class PSLParser:
+    last_hit_table = None  # hit table from the most recent parse_psl_file call
     """Parses PSL files and extracts mapping information."""
     
     @staticmethod
@@ -292,10 +328,13 @@ class PSLParser:
         """
         mapped_sequences = set()
         filtered_hits = []
+        kept = []
         for hit in filter_hits(parse_psl(psl_file), min_identity, min_length, min_match_count):
             mapped_sequences.add(hit.q_name)
+            kept.append(hit)
             if filtered_output:
                 filtered_hits.append(hit.line)
+        PSLParser.last_hit_table = build_hit_table(kept)
 
         if filtered_output:
             header_lines = []

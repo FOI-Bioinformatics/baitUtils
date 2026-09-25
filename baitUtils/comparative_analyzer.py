@@ -36,6 +36,7 @@ class OligoSetResult:
     quality_score: QualityScore
     benchmark_results: Optional[Dict] = None
     coverage_arrays: Optional[Dict] = None
+    per_oligo: Optional[pd.DataFrame] = None
 
 
 @dataclass
@@ -189,7 +190,8 @@ class ComparativeAnalyzer:
             gap_analysis=gap_analysis,
             quality_score=quality_score,
             benchmark_results=benchmark_results,
-            coverage_arrays=coverage_analyzer.coverage_arrays
+            coverage_arrays=coverage_analyzer.coverage_arrays,
+            per_oligo=coverage_analyzer.hit_table
         )
     
     def generate_comparison_matrix(self) -> pd.DataFrame:

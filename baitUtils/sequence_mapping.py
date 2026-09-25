@@ -120,6 +120,18 @@ class SequenceMappingProcessor:
             args.min_length
         )
         
+        # Per-bait hit table for off-target assessment
+        self.hit_table = self.psl_parser.last_hit_table
+        hits_file = os.path.join(args.outdir, f"{args.outprefix}-hits.tsv")
+        self.hit_table.to_csv(hits_file, sep="\t", index=False)
+        logging.info(f"Wrote per-bait hit table to {hits_file}")
+        
+        if args.max_hits is not None:
+            multi = set(self.hit_table.loc[self.hit_table['n_hits'] > args.max_hits, 'oligo_id'])
+            if multi:
+                logging.info(f"Excluding {len(multi)} baits with more than {args.max_hits} hits")
+            mapped_sequences = mapped_sequences - multi
+        
         return mapped_sequences
     
     def _log_mapping_results(self, mapped_sequences: set, unmapped_sequences: set) -> None:
@@ -199,6 +211,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help='Minimum number of matching bases required (default: 0)')
     parser.add_argument('--min-length', dest='min_length', type=int, default=0,
                        help='Minimum aligned length in bases for a hit to count (default: 0)')
+    parser.add_argument('--max-hits', dest='max_hits', type=int, default=None,
+                       help='Treat baits with more passing hits than this as unmapped '
+                            '(off-target filter; default: no limit)')
     
     # Output options
     parser.add_argument('--fasta-output', 

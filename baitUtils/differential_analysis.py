@@ -233,6 +233,35 @@ class DifferentialAnalyzer:
         self._adjust([result])
         return {'gap_size_distribution': result}
 
+    # ------------------------------------------------------- per-oligo identity
+    def compare_oligo_identity(self, set1: OligoSetResult, set2: OligoSetResult) -> StatisticalTest:
+        """
+        Mann-Whitney U test on best-hit identity per mapped bait. Baits are
+        independent observations, so this is the most direct comparison of
+        design quality between two sets.
+        """
+        def identities(oligo_set):
+            table = oligo_set.per_oligo
+            if table is None or len(table) == 0:
+                return np.array([])
+            return table['best_identity'].to_numpy(dtype=float)
+
+        a, b = identities(set1), identities(set2)
+        if len(a) < 2 or len(b) < 2:
+            return _not_applicable("Mann-Whitney U (bait identity)", "fewer than two mapped baits in a set",
+                                   len(a) + len(b))
+        if np.allclose(a, a[0]) and np.allclose(b, b[0]) and np.isclose(a[0], b[0]):
+            return _not_applicable("Mann-Whitney U (bait identity)", "identical identity for every bait",
+                                   len(a) + len(b))
+        stat, p = stats.mannwhitneyu(a, b, alternative='two-sided')
+        effect = 2.0 * float(stat) / (len(a) * len(b)) - 1.0
+        result = StatisticalTest("Mann-Whitney U (bait identity)", float(stat), float(p), effect,
+                                 self._get_significance_level(p),
+                                 self._interpret(p, "best-hit identity per bait", f"U={stat:.0f}"),
+                                 n=len(a) + len(b))
+        self._adjust([result])
+        return result
+
     # ----------------------------------------------------- multiple comparison
     def multiple_comparison_correction(self, p_values: List[float], method: Optional[str] = None) -> List[float]:
         """Adjust p-values with 'bonferroni', 'holm', 'fdr' (Benjamini-Hochberg) or 'none'."""

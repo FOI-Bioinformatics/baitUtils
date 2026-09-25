@@ -553,6 +553,12 @@ class ComparativeReportGenerator:
                 ("Levene's Test", dist_comparison.levene_test)
             ]:
                 html += self._render_test(test_name, test, alpha)
+            
+            identity_test = self.differential_analyzer.compare_oligo_identity(
+                self.analyzer.oligo_sets[0], self.analyzer.oligo_sets[1]
+            )
+            html += "<h3>Bait Identity</h3>"
+            html += self._render_test("Best-hit identity per bait", identity_test, alpha)
         
         html += """
     </div>

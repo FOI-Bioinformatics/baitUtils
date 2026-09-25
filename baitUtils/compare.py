@@ -22,6 +22,7 @@ from typing import Dict, List, Tuple
 from baitUtils._version import __version__
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
+from baitUtils.json_export import write_json
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
 
@@ -201,6 +202,35 @@ def main(args):
     # Export comparison data
     logging.info("Exporting comparison data...")
     exported_files = analyzer.export_comparison_data()
+    
+    statistics = None
+    if differential_analyzer is not None:
+        statistics = {'per_reference_metrics': differential_analyzer.compare_quality_metrics(analyzer.oligo_sets)}
+        if len(analyzer.oligo_sets) == 2:
+            first, second = analyzer.oligo_sets
+            statistics['coverage_distribution'] = differential_analyzer.compare_coverage_distributions(first, second)
+            statistics['bait_identity'] = differential_analyzer.compare_oligo_identity(first, second)
+            statistics['gap_sizes'] = differential_analyzer.analyze_gap_patterns(first, second)
+    json_file = write_json({
+        'reference': str(args.reference),
+        'parameters': {
+            'min_identity': args.min_identity, 'min_length': args.min_length,
+            'min_coverage': args.min_coverage, 'target_coverage': args.target_coverage,
+            'significance_level': args.significance_level,
+            'multiple_comparison_correction': args.multiple_comparison_correction,
+        },
+        'sets': [{
+            'name': r.name, 'file': r.file_path,
+            'coverage_stats': r.coverage_stats,
+            'gap_analysis': {k: v for k, v in r.gap_analysis.items() if k != 'feature_analysis'},
+            'quality_score': r.quality_score.to_dict(),
+            'benchmarks': r.benchmark_results,
+        } for r in analyzer.oligo_sets],
+        'comparison_matrix': comparison_matrix,
+        'ranking': analyzer.generate_ranking(),
+        'statistics': statistics,
+    }, output_dir / "comparison.json")
+    exported_files['json'] = str(json_file)
     
     # Copy intermediate files if requested
     if args.keep_intermediates:

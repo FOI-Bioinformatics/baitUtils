@@ -18,7 +18,7 @@ from datetime import datetime
 
 from Bio import SeqIO
 
-from baitUtils.mapping_utils import SequenceLoader, parse_psl
+from baitUtils.mapping_utils import SequenceLoader, parse_psl, build_hit_table
 
 try:
     import pybedtools
@@ -82,6 +82,7 @@ class CoverageAnalyzer:
         self.reference_sequences = {}
         self.mappings = []
         self.coverage_arrays = {}
+        self.hit_table = None
         self.stats = {}
     
     def analyze(self) -> Dict[str, Any]:
@@ -126,10 +127,12 @@ class CoverageAnalyzer:
     def _parse_psl_file(self) -> None:
         """Parse the PSL file and keep hits passing the identity and length filters."""
         total = 0
+        kept_hits = []
         for hit in parse_psl(self.psl_file):
             total += 1
             if hit.aligned_length < self.min_length or hit.identity < self.min_identity:
                 continue
+            kept_hits.append(hit)
             self.mappings.append({
                 'query_name': hit.q_name,
                 'target_name': hit.t_name,
@@ -141,6 +144,7 @@ class CoverageAnalyzer:
                 'strand': hit.strand,
                 'blocks': hit.target_blocks,
             })
+        self.hit_table = build_hit_table(kept_hits)
         logging.info(f"Parsed {len(self.mappings)} valid mappings from {total} total lines")
     
     def _compute_coverage_arrays(self) -> None:

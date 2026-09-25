@@ -339,6 +339,19 @@ class TestDifferentialAnalyzer(unittest.TestCase):
         self.assertEqual(test.n, 7)
         self.assertGreater(test.effect_size, 0)  # Set1 gaps are larger: positive rank-biserial r
     
+    def test_compare_oligo_identity(self):
+        self.set1.per_oligo = pd.DataFrame({'oligo_id': [f'a{i}' for i in range(30)],
+                                            'best_identity': np.linspace(90, 95, 30)})
+        self.set2.per_oligo = pd.DataFrame({'oligo_id': [f'b{i}' for i in range(30)],
+                                            'best_identity': np.linspace(96, 100, 30)})
+        test = self.analyzer.compare_oligo_identity(self.set1, self.set2)
+        self.assertTrue(test.applicable)
+        self.assertEqual(test.n, 60)
+        self.assertLess(test.p_adjusted, 0.001)
+        self.assertLess(test.effect_size, 0)  # set1 identities are lower
+        bare = self._make_set('Bare', {}, {})
+        self.assertFalse(self.analyzer.compare_oligo_identity(bare, self.set2).applicable)
+    
     def test_multiple_comparison_correction(self):
         p_values = [0.01, 0.03, 0.08, 0.15, 0.25]
         bonferroni = self.analyzer.multiple_comparison_correction(p_values, 'bonferroni')

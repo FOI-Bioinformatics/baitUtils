@@ -25,6 +25,7 @@ from Bio import SeqIO
 from baitUtils._version import __version__
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
+from baitUtils.json_export import write_json
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer
@@ -288,7 +289,8 @@ def main(args):
         # Step 5/Final: Generate standard reports
         step_num = "5/5" if not (args.enable_html_report or args.enable_interactive_plots or args.enable_benchmarking) else "Final"
         logging.info(f"Step {step_num}: Generating standard reports...")
-        generate_reports(coverage_stats, gap_analysis, output_dir, args, benchmark_results)
+        generate_reports(coverage_stats, gap_analysis, output_dir, args, benchmark_results,
+                         quality_score=quality_score, reference_analysis=reference_analysis)
         
         # Copy intermediate files if requested
         if args.keep_intermediates:
@@ -395,8 +397,23 @@ def perform_mapping(args, temp_dir: Path) -> Path:
     return psl_file
 
 
-def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args, benchmark_results=None) -> None:
-    """Generate text-based reports."""
+def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args,
+                     benchmark_results=None, quality_score=None, reference_analysis=None) -> None:
+    """Generate text reports and the machine-readable evaluation.json."""
+    
+    write_json({
+        'inputs': {'oligos': str(args.input), 'reference': str(args.reference)},
+        'parameters': {
+            'min_identity': args.min_identity, 'min_length': args.min_length,
+            'min_coverage': args.min_coverage, 'target_coverage': args.target_coverage,
+            'min_gap_size': args.min_gap_size,
+        },
+        'coverage_stats': coverage_stats,
+        'gap_analysis': {k: v for k, v in gap_analysis.items() if k != 'feature_analysis'},
+        'quality_score': quality_score.to_dict() if quality_score is not None else None,
+        'benchmarks': benchmark_results,
+        'reference_summary': (reference_analysis or {}).get('summary'),
+    }, output_dir / "evaluation.json")
     
     # Coverage statistics report
     stats_file = output_dir / "coverage_statistics.txt"
