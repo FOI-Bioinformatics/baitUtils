@@ -15,6 +15,7 @@ import sys
 import pandas as pd
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.plotting_utils import StatisticalPlotter, validate_columns
 
 
@@ -108,13 +109,8 @@ class PlotCommandProcessor:
         logging.info("All plots have been generated successfully.")
     
     def _setup_logging(self, enable_debug: bool) -> None:
-        """Configure logging settings."""
-        log_level = logging.DEBUG if enable_debug else logging.INFO
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s %(levelname)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        """Configure logging."""
+        ensure_logging(verbose=enable_debug)
     
     def _validate_color_column(self, df: pd.DataFrame, color_col: str) -> None:
         """Validate and prepare color column for plotting."""

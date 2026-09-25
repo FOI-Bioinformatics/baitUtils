@@ -20,9 +20,10 @@ import tempfile
 import shutil
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
-from baitUtils.json_export import write_json
+from baitUtils.json_export import write_json, tool_versions, arguments_record
 from baitUtils.mapping_utils import run_mapper, check_mapper_available
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
@@ -59,6 +60,12 @@ def add_arguments(parser):
         choices=['pblat', 'minimap2'],
         default='pblat',
         help='Mapping tool (default: pblat). minimap2 is run with -c and the chosen preset'
+    )
+    parser.add_argument(
+        '--strand',
+        choices=['both', 'plus', 'minus'],
+        default='both',
+        help='Count hits on both strands, or only plus or minus strand hits (default: both)'
     )
     parser.add_argument(
         '--minimap2-preset',
@@ -205,7 +212,8 @@ def main(args):
             target_coverage=args.target_coverage,
             min_identity=args.min_identity,
             min_length=args.min_length,
-            oligos_file=args.input
+            oligos_file=args.input,
+            strand=args.strand
         )
         
         coverage_stats = analyzer.analyze()
@@ -317,20 +325,8 @@ def main(args):
 
 
 def setup_logging(enable_debug: bool, quiet: bool) -> None:
-    """Configure logging settings."""
-    if quiet:
-        level = logging.WARNING
-    elif enable_debug:
-        level = logging.DEBUG
-    else:
-        level = logging.INFO
-    
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s %(levelname)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
+    """Configure logging (kept for direct calls of main)."""
+    ensure_logging(verbose=enable_debug, quiet=quiet)
 
 def validate_inputs(args) -> None:
     """Validate input files and parameters."""
@@ -384,6 +380,8 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
     """Generate text reports and the machine-readable evaluation.json."""
     
     write_json({
+        'versions': tool_versions(),
+        'arguments': arguments_record(args),
         'inputs': {'oligos': str(args.input), 'reference': str(args.reference)},
         'parameters': {
             'min_identity': args.min_identity, 'min_length': args.min_length,

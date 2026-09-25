@@ -49,7 +49,8 @@ class CoverageAnalyzer:
         target_coverage: float = 10.0,
         min_identity: float = 90.0,
         min_length: int = 100,
-        oligos_file: Optional[Path] = None
+        oligos_file: Optional[Path] = None,
+        strand: str = "both"
     ):
         """
         Initialize the coverage analyzer.
@@ -66,6 +67,7 @@ class CoverageAnalyzer:
         self.psl_file = Path(psl_file)
         self.reference_file = Path(reference_file)
         self.oligos_file = Path(oligos_file) if oligos_file else None
+        self.strand = strand
         self.min_coverage = min_coverage
         self.target_coverage = target_coverage
         self.min_identity = min_identity
@@ -121,8 +123,11 @@ class CoverageAnalyzer:
         """Parse the PSL file and keep hits passing the identity and length filters."""
         total = 0
         kept_hits = []
+        wanted_strand = {"plus": "+", "minus": "-"}.get(self.strand)
         for hit in parse_alignments(self.psl_file):
             total += 1
+            if wanted_strand is not None and hit.strand != wanted_strand:
+                continue
             if hit.aligned_length < self.min_length or hit.identity < self.min_identity:
                 continue
             kept_hits.append(hit)
@@ -176,6 +181,11 @@ class CoverageAnalyzer:
         unique_queries = len(set(m['query_name'] for m in self.mappings))
         self.stats.update({
             'total_mappings': len(self.mappings),
+            'strand': self.strand,
+            'strand_counts': {
+                '+': sum(1 for m in self.mappings if m.get('strand') == '+'),
+                '-': sum(1 for m in self.mappings if m.get('strand') == '-'),
+            },
             'mapped_oligos': unique_queries,
             'total_oligos': self._count_total_oligos(),
             'mapping_efficiency': (unique_queries / max(1, self._count_total_oligos())) * 100
@@ -314,6 +324,8 @@ class CoverageAnalyzer:
             
             stats = {
                 'length': ref_length,
+                'plus_hits': sum(1 for m in self.mappings if m['target_name'] == ref_id and m.get('strand') == '+'),
+                'minus_hits': sum(1 for m in self.mappings if m['target_name'] == ref_id and m.get('strand') == '-'),
                 'mean_depth': float(np.mean(cov_array)),
                 'max_depth': int(np.max(cov_array)),
                 'covered_bases': int(covered_bases),

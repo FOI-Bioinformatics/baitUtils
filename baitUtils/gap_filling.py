@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.bedtools_support import require_bedtools
 from baitUtils.gap_filling_algorithm import MultiPassSelector
 from baitUtils.coverage_analysis import (
@@ -69,7 +70,8 @@ class GapFillingProcessor:
         args.temp_dir = work_dir
         # Set up analysis
         bed, mappings_dict, genome_file = self.coverage_orchestrator.setup_analysis(
-            args.psl, args.min_length, args.min_similarity, args.temp_dir, args.reference
+            args.psl, args.min_length, args.min_similarity, args.temp_dir, args.reference,
+            strand=args.strand
         )
         
         count = bed.count()
@@ -110,12 +112,8 @@ class GapFillingProcessor:
         self._write_results(args, selected_oligos, mappings_dict, genome_file)
     
     def _setup_logging(self, log_level: str = "INFO") -> None:
-        """Configure logging settings."""
-        logging.basicConfig(
-            level=getattr(logging, log_level),
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            datefmt="%H:%M:%S"
-        )
+        """Configure logging."""
+        ensure_logging(level=log_level)
     
     def _write_results(self, args, selected_oligos, mappings_dict, genome_file) -> None:
         """Write out all results and perform final coverage analysis."""
@@ -225,6 +223,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # Filtering parameters
     parser.add_argument("--min_length", type=int, default=100,
                        help="Minimum mapping length to consider (default=100)")
+    parser.add_argument("--strand", choices=["both", "plus", "minus"], default="both",
+                       help="Count hits on both strands, or only plus or minus strand hits (default: both)")
     parser.add_argument("--min_similarity", type=float, default=95.0,
                        help="Minimum percent identity to consider (default=95.0)")
     parser.add_argument("--uncovered_length_cutoff", type=int, default=0,
@@ -251,7 +251,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # System parameters
     parser.add_argument("--temp_dir", type=Path,
                        help="Parent directory for the run's temporary directory (default: system temp)")
-    parser.add_argument("--log_level", 
+    parser.add_argument("--log-level", "--log_level", dest="log_level",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                        default="INFO", help="Set logging level")
 

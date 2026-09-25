@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.bedtools_support import require_bedtools
 from baitUtils.coverage_analysis import CoverageChecker, PSLParser, ForcedOligoHandler
 
@@ -49,7 +50,8 @@ class CoverageEvaluationProcessor:
             pybedtools.set_tempdir(str(work_dir))  # sets tempfile.tempdir globally
             try:
                 bed = self.psl_converter.parse_psl_to_bed(
-                    args.psl, args.min_length, args.min_similarity, work_dir, "temp_check.bed"
+                    args.psl, args.min_length, args.min_similarity, work_dir, "temp_check.bed",
+                    strand=args.strand
                 )
                 if bed.count() == 0:
                     logging.error("No intervals found in PSL after filtering. Exiting.")
@@ -70,13 +72,8 @@ class CoverageEvaluationProcessor:
                 tempfile.tempdir = previous_tempdir
     
     def _setup_logging(self, log_level: str = "INFO") -> None:
-        """Configure logging settings."""
-        logging.basicConfig(
-            level=getattr(logging, log_level),
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            datefmt="%H:%M:%S"
-        )
-
+        """Configure logging."""
+        ensure_logging(level=log_level)
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for coverage evaluation."""
@@ -98,6 +95,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # Filtering parameters
     parser.add_argument("--min_length", type=int, default=100,
                        help="Minimum mapping length to consider (default=100)")
+    parser.add_argument("--strand", choices=["both", "plus", "minus"], default="both",
+                       help="Count hits on both strands, or only plus or minus strand hits (default: both)")
     parser.add_argument("--min_similarity", type=float, default=95.0,
                        help="Minimum percent identity to consider (default=95.0)")
     parser.add_argument("--uncovered_length_cutoff", type=int, default=0,
@@ -123,7 +122,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # System parameters
     parser.add_argument("--temp_dir", type=Path,
                        help="Parent directory for the run's temporary directory (default: system temp)")
-    parser.add_argument("--log_level",
+    parser.add_argument("--log-level", "--log_level", dest="log_level",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                        default="INFO", help="Set logging level")
 

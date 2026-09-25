@@ -43,7 +43,22 @@ scikit-learn, biopython (1.80 or later), plotly, scipy, tqdm.
 | `evaluate` | Mapping, coverage, gaps, quality score and HTML report       | pblat/minimap2  |
 | `compare`  | Evaluate several bait sets and test differences between them | pblat/minimap2  |
 
-`baitUtils <command> --help` lists all options.
+`baitUtils <command> --help` lists all options. Two options sit in front of
+the command name:
+
+- `--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}` sets the logging level
+  for any command (per-command `-l`, `--verbose` and `--quiet` still apply).
+- `--config file.json` supplies option defaults. The file maps command
+  names to option destinations, with a `common` block for options shared by
+  several commands; values on the command line override it.
+
+```json
+{
+  "common": {"threads": 4, "log_level": "WARNING"},
+  "evaluate": {"min_identity": 95.0, "target_coverage": 10, "strand": "both"},
+  "compare": {"multiple_comparison_correction": "holm"}
+}
+```
 
 ### stats
 
@@ -93,7 +108,9 @@ Runs the mapper (`-i` baits, `-q` reference) and writes, under `-o` with the
 - `run-hits.tsv`: per bait, number of hits and targets, best and second-best
   identity, best locus and strand
 - `run-mapped-sequence-ids.txt`, `run-unmapped-sequence-ids.txt`
-- FASTA of mapped and/or unmapped baits (`--fasta-output`)
+- FASTA of mapped and/or unmapped baits (`--fasta-output`); with
+  `--orient-to-reference`, baits whose best hit is on the minus strand are
+  written reverse-complemented so that all baits are in reference orientation
 
 Identity follows BLAT's calculation, so `--filterIdentity` is on the same
 scale as pblat's `-minIdentity`. `--max-hits` treats baits with more passing
@@ -121,7 +138,9 @@ baitUtils check --alignments mapping/run-mapping.psl --reference reference.fasta
 ```
 
 Converts PSL or PAF hits (aligned blocks) to BED, computes depth with bedtools and
-reports runs below `--min_coverage`. Reference sizes come from the FASTA, so
+reports runs below `--min_coverage`. `--strand plus` or `--strand minus`
+restricts the hits to one target strand (also in `fill`, `evaluate` and
+`compare`; the default counts both). Reference sizes come from the FASTA, so
 regions after the last mapped bait are included. `--forced_oligos` restricts
 the check to a list of bait IDs. `--uncovered_fasta` exports the uncovered
 sequence, optionally extended by `--extend_region` and split at N runs into
@@ -160,7 +179,9 @@ Output:
 
 ```
 evaluation/
-  evaluation.json                  all results, machine readable
+  evaluation.json                  all results, machine readable, with the
+                                   versions of baitUtils, Python, libraries and
+                                   external tools, and the full argument set
   coverage_statistics.txt          breadth, depth, mapping efficiency
   gap_analysis.txt                 gap summary and largest gaps
   recommendations.txt
@@ -171,7 +192,8 @@ evaluation/
 ```
 
 Mapping efficiency counts baits in the input FASTA. Gap coordinates come from
-the per-base coverage arrays.
+the per-base coverage arrays. Hits are counted per strand (`strand_counts`,
+and `plus_hits` and `minus_hits` per reference).
 
 Reference analysis computes sequence features per reference and per window
 (`--reference-analysis-window`, default 1000 bp): GC, N content, entropy,

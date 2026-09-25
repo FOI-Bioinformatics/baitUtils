@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Optional
 from Bio import SeqIO
 
 from baitUtils._version import __version__
+from baitUtils.logging_utils import ensure_logging
 from baitUtils.sequence_analysis import SequenceAnalyzer
 
 
@@ -371,8 +372,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def main(args) -> None:
     """Main function for sequence statistics calculation."""
     # Set up logging
-    log_level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
+    ensure_logging(verbose=args.verbose)
     
     # Validate input file
     if not os.path.exists(args.input):

@@ -29,7 +29,9 @@ The project follows a modular, well-factored architecture with clear separation 
 - **`mapping_utils.py`**: pblat and minimap2 runners, the single alignment parser (`PSLHit`, `parse_psl`, `parse_paf`, `parse_alignments`, BLAT identity) and the per-bait hit table
 - **`sequence_features.py`**: vectorized sequence features (GC, entropy, homopolymers, duplicated k-mers, window features and window coverage)
 - **`bedtools_support.py`**: dependency check for the commands that need pybedtools and bedtools
-- **`json_export.py`**: JSON writer used by evaluate and compare
+- **`json_export.py`**: JSON writer, tool version record and argument record used by evaluate and compare
+- **`config.py`**: JSON configuration file applied as argparse defaults (`--config` on the main parser)
+- **`logging_utils.py`**: single logging configuration; the dispatcher configures it, command modules call `ensure_logging`
 - **`templates/`**: CSS and JavaScript for the HTML reports
 - **`gap_filling_algorithm.py`**: Multi-pass greedy selection algorithms
 
