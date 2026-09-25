@@ -18,12 +18,31 @@ from datetime import datetime
 
 from Bio import SeqIO
 
+from baitUtils.mapping_utils import SequenceLoader
+
 try:
     import pybedtools
     from pybedtools import BedTool
     HAS_PYBEDTOOLS = True
 except ImportError:
     HAS_PYBEDTOOLS = False
+
+
+def find_gap_intervals(coverage_array: np.ndarray, min_coverage: float = 1.0) -> List[Tuple[int, int]]:
+    """
+    Return half-open (start, end) intervals where depth is below min_coverage.
+
+    Coordinates are 0-based and follow BED conventions, so an interval
+    (start, end) covers positions start .. end - 1.
+    """
+    below = np.asarray(coverage_array) < min_coverage
+    if below.size == 0 or not below.any():
+        return []
+    padded = np.concatenate(([False], below, [False])).astype(np.int8)
+    edges = np.diff(padded)
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1)
+    return [(int(s), int(e)) for s, e in zip(starts, ends)]
 
 
 class CoverageAnalyzer:
@@ -36,7 +55,8 @@ class CoverageAnalyzer:
         min_coverage: float = 1.0,
         target_coverage: float = 10.0,
         min_identity: float = 90.0,
-        min_length: int = 100
+        min_length: int = 100,
+        oligos_file: Optional[Path] = None
     ):
         """
         Initialize the coverage analyzer.
@@ -48,9 +68,11 @@ class CoverageAnalyzer:
             target_coverage: Target coverage depth for analysis
             min_identity: Minimum mapping identity to consider
             min_length: Minimum mapping length to consider
+            oligos_file: Input oligo FASTA; needed for a true mapping efficiency
         """
         self.psl_file = Path(psl_file)
         self.reference_file = Path(reference_file)
+        self.oligos_file = Path(oligos_file) if oligos_file else None
         self.min_coverage = min_coverage
         self.target_coverage = target_coverage
         self.min_identity = min_identity
@@ -238,9 +260,10 @@ class CoverageAnalyzer:
         logging.info("Comprehensive statistics calculated")
     
     def _count_total_oligos(self) -> int:
-        """Count total number of oligos from original input (estimate from mappings)."""
-        # This is an approximation since we only see mapped oligos
-        # In practice, this would come from counting the input FASTA
+        """Count oligos in the input FASTA, or fall back to the mapped count."""
+        if self.oligos_file is not None:
+            return SequenceLoader.count_sequences(str(self.oligos_file))
+        logging.warning("No oligo FASTA given; mapping efficiency is computed from mapped oligos only")
         return len(set(m['query_name'] for m in self.mappings))
     
     def _calculate_depth_statistics(self) -> None:
@@ -361,24 +384,7 @@ class CoverageAnalyzer:
     
     def _count_gaps_in_sequence(self, coverage_array: np.ndarray) -> int:
         """Count number of coverage gaps in a sequence."""
-        # Find positions below minimum coverage
-        below_threshold = coverage_array < self.min_coverage
-        
-        # Count transitions from covered to uncovered
-        if len(below_threshold) <= 1:
-            return 0
-        
-        # Find gap boundaries
-        gap_starts = np.where(np.diff(below_threshold.astype(int)) == 1)[0] + 1
-        gap_ends = np.where(np.diff(below_threshold.astype(int)) == -1)[0] + 1
-        
-        # Handle edge cases
-        if below_threshold[0]:
-            gap_starts = np.concatenate([[0], gap_starts])
-        if below_threshold[-1]:
-            gap_ends = np.concatenate([gap_ends, [len(below_threshold)]])
-        
-        return len(gap_starts)
+        return len(find_gap_intervals(coverage_array, self.min_coverage))
     
     def export_coverage_data(self, output_dir: Path) -> None:
         """Export detailed coverage data to files."""
@@ -404,38 +410,12 @@ class CoverageAnalyzer:
         # Export gap regions in BED format
         gap_regions = []
         for ref_id, cov_array in self.coverage_arrays.items():
-            below_threshold = cov_array < self.min_coverage
-            
-            if not np.any(below_threshold):
-                continue
-            
-            # Find gap boundaries
-            gap_starts = []
-            gap_ends = []
-            
-            in_gap = False
-            gap_start = 0
-            
-            for i, is_gap in enumerate(below_threshold):
-                if is_gap and not in_gap:
-                    gap_start = i
-                    in_gap = True
-                elif not is_gap and in_gap:
-                    gap_regions.append({
-                        'chromosome': ref_id,
-                        'start': gap_start,
-                        'end': i,
-                        'length': i - gap_start
-                    })
-                    in_gap = False
-            
-            # Handle gap at end
-            if in_gap:
+            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
                 gap_regions.append({
                     'chromosome': ref_id,
                     'start': gap_start,
-                    'end': len(cov_array),
-                    'length': len(cov_array) - gap_start
+                    'end': gap_end,
+                    'length': gap_end - gap_start
                 })
         
         if gap_regions:
@@ -449,4 +429,4 @@ class CoverageAnalyzer:
             
             logging.info(f"Gap regions exported to {gap_file}")
         
-        return coverage_df, gap_regions if gap_regions else pd.DataFrame()
+        return coverage_df, pd.DataFrame(gap_regions)

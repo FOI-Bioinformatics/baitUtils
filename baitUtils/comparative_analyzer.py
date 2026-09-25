@@ -35,6 +35,7 @@ class OligoSetResult:
     gap_analysis: Dict
     quality_score: QualityScore
     benchmark_results: Optional[Dict] = None
+    coverage_arrays: Optional[Dict] = None
 
 
 @dataclass
@@ -142,14 +143,17 @@ class ComparativeAnalyzer:
             min_coverage=self.min_coverage,
             target_coverage=self.target_coverage,
             min_identity=self.min_identity,
-            min_length=self.min_length
+            min_length=self.min_length,
+            oligos_file=oligo_file
         )
         coverage_stats = coverage_analyzer.analyze()
         
         # Gap analysis
         gap_analyzer = GapAnalyzer(
             coverage_data=coverage_stats,
-            reference_file=self.reference_file
+            reference_file=self.reference_file,
+            coverage_arrays=coverage_analyzer.coverage_arrays,
+            min_coverage=self.min_coverage
         )
         gap_analysis = gap_analyzer.analyze()
         
@@ -184,7 +188,8 @@ class ComparativeAnalyzer:
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
             quality_score=quality_score,
-            benchmark_results=benchmark_results
+            benchmark_results=benchmark_results,
+            coverage_arrays=coverage_analyzer.coverage_arrays
         )
     
     def generate_comparison_matrix(self) -> pd.DataFrame:

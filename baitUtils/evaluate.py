@@ -195,7 +195,8 @@ def main(args):
             min_coverage=args.min_coverage,
             target_coverage=args.target_coverage,
             min_identity=args.min_identity,
-            min_length=args.min_length
+            min_length=args.min_length,
+            oligos_file=args.input
         )
         
         coverage_stats = analyzer.analyze()
@@ -206,7 +207,9 @@ def main(args):
             coverage_data=coverage_stats,
             reference_file=args.reference,
             min_gap_size=args.min_gap_size,
-            extend_bp=args.gap_extend
+            extend_bp=args.gap_extend,
+            coverage_arrays=analyzer.coverage_arrays,
+            min_coverage=args.min_coverage
         )
         
         gap_analysis = gap_analyzer.analyze()
