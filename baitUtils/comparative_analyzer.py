@@ -11,13 +11,11 @@ allowing users to evaluate multiple oligo set designs and identify the best perf
 """
 
 import logging
-import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, NamedTuple
+from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 from dataclasses import dataclass
 import tempfile
-import shutil
 
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.gap_analysis import GapAnalyzer
@@ -120,8 +118,8 @@ class ComparativeAnalyzer:
         cmd = [
             'pblat',
             f'-minIdentity={self.min_identity}',
-            f'-minScore=30',
-            f'-minMatch=2',
+            '-minScore=30',
+            '-minMatch=2',
             self.reference_file,
             oligo_file,
             str(psl_file)

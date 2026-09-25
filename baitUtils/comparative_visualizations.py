@@ -15,17 +15,15 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import seaborn as sns
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Optional
 from pathlib import Path
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import plotly.figure_factory as ff
 
 from baitUtils.comparative_analyzer import OligoSetResult, ComparativeAnalyzer
-from baitUtils.differential_analysis import DifferentialAnalyzer, CoverageDistributionComparison
+from baitUtils.differential_analysis import DifferentialAnalyzer
 
 
 class ComparativeVisualizer:
@@ -235,9 +233,9 @@ class ComparativeVisualizer:
         quality_scores = [result.quality_score.overall_score for result in oligo_sets]
         coverage_breadths = [result.coverage_stats.get('coverage_breadth', 0) for result in oligo_sets]
         
-        scatter = axes[1,1].scatter(coverage_breadths, quality_scores, 
-                                  s=100, alpha=0.7, c=range(len(oligo_sets)), 
-                                  cmap='viridis')
+        axes[1,1].scatter(coverage_breadths, quality_scores,
+                          s=100, alpha=0.7, c=range(len(oligo_sets)),
+                          cmap='viridis')
         axes[1,1].set_xlabel('Coverage Breadth (%)')
         axes[1,1].set_ylabel('Quality Score')
         axes[1,1].set_title('Quality Score vs Coverage Breadth')

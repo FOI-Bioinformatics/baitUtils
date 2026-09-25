@@ -11,9 +11,6 @@ import argparse
 import logging
 import os
 import sys
-import gzip
-from pathlib import Path
-from typing import List, Optional
 
 import pandas as pd
 
@@ -125,7 +122,7 @@ class PlotCommandProcessor:
             logging.error(f"Color column '{color_col}' not found in parameters file.")
             raise ValueError(f"Color column '{color_col}' not found")
         
-        if not pd.api.types.is_categorical_dtype(df[color_col]) and \
+        if not isinstance(df[color_col].dtype, pd.CategoricalDtype) and \
            not pd.api.types.is_object_dtype(df[color_col]):
             logging.warning(f"Color column '{color_col}' is not categorical. "
                            f"Converting to category.")
@@ -154,9 +151,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                                'boxenplot', 'pca'],
                        default=['histogram'],
                        help='Type of plots to generate (default: histogram)')
-    parser.add_argument('--color', choices=['Kept'],
-                       help='Column to use for coloring the plots. '
-                            'Currently supports "Kept".')
+    parser.add_argument('--color', choices=['kept'],
+                       help='Column to use for colouring the plots '
+                            '(the kept flag written by the stats command).')
     parser.add_argument('--format', choices=['png', 'pdf', 'svg'], 
                        default='png',
                        help='Output file format for the plots (default: png)')

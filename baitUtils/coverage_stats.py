@@ -11,7 +11,6 @@ coverage metrics including breadth, depth, uniformity, and distributions.
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict, Counter
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -20,12 +19,6 @@ from Bio import SeqIO
 
 from baitUtils.mapping_utils import SequenceLoader, parse_psl, build_hit_table
 
-try:
-    import pybedtools
-    from pybedtools import BedTool
-    HAS_PYBEDTOOLS = True
-except ImportError:
-    HAS_PYBEDTOOLS = False
 
 
 def find_gap_intervals(coverage_array: np.ndarray, min_coverage: float = 1.0) -> List[Tuple[int, int]]:

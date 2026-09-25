@@ -10,19 +10,20 @@ Refactored from fill.py for better organization and maintainability.
 import argparse
 import logging
 import sys
+import tempfile
 from pathlib import Path
-from typing import Optional
 
-from Bio import SeqIO
 
 from baitUtils._version import __version__
 from baitUtils.bedtools_support import require_bedtools
 from baitUtils.gap_filling_algorithm import MultiPassSelector
 from baitUtils.coverage_analysis import (
-    CoverageAnalysisOrchestrator, 
+    CoverageAnalysisOrchestrator,
     ForcedOligoHandler,
     SequenceLoader,
-    CoverageCalculator
+    CoverageCalculator,
+    SequenceProcessor,
+    write_uncovered_regions
 )
 
 
@@ -48,9 +49,24 @@ class GapFillingProcessor:
         self._setup_logging(args.log_level)
         require_bedtools()
 
-        # Load forced oligos
+        import pybedtools
         forced_oligos = self.forced_handler.read_forced_oligos(args.forced_oligos)
         
+        if args.temp_dir:
+            Path(args.temp_dir).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="baitUtils_fill_", dir=args.temp_dir) as tmp:
+            work_dir = Path(tmp)
+            previous_tempdir = tempfile.tempdir
+            pybedtools.set_tempdir(str(work_dir))  # sets tempfile.tempdir globally
+            try:
+                self._run(args, forced_oligos, work_dir)
+            finally:
+                pybedtools.cleanup(remove_all=True)
+                tempfile.tempdir = previous_tempdir
+    
+    def _run(self, args, forced_oligos, work_dir: Path) -> None:
+        """Run selection with all temporary files under work_dir."""
+        args.temp_dir = work_dir
         # Set up analysis
         bed, mappings_dict, genome_file = self.coverage_orchestrator.setup_analysis(
             args.psl, args.min_length, args.min_similarity, args.temp_dir, args.reference
@@ -81,13 +97,11 @@ class GapFillingProcessor:
             forced_oligos,
             coverage_calc_func,
             args.min_coverage,
-            args.max_coverage,
             args.spacing_distance,
             args.min_contribution,
             args.max_passes,
             args.max_oligos_per_pass,
             sequences,
-            args.force,
             args.uncovered_length_cutoff,
             args.stall_rounds
         )
@@ -105,15 +119,25 @@ class GapFillingProcessor:
     
     def _write_results(self, args, selected_oligos, mappings_dict, genome_file) -> None:
         """Write out all results and perform final coverage analysis."""
-        # Write selected oligos
-        final_count = len(selected_oligos)
-        logging.info(f"Final selection contains {final_count} oligos.")
+        # Write selected oligos (IDs) and the selected mappings (loci)
+        selected_ids = sorted({key[0] for key in selected_oligos})
+        logging.info(f"Final selection contains {len(selected_ids)} oligos "
+                     f"({len(selected_oligos)} mappings).")
         
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with open(args.output, "w") as f:
-            for oligo_id in sorted(selected_oligos):
+            for oligo_id in selected_ids:
                 f.write(f"{oligo_id}\n")
         logging.info(f"Selected oligos written to {args.output}")
+        
+        mappings_out = args.output.with_name(args.output.stem + "_mappings.tsv")
+        with open(mappings_out, "w") as f:
+            f.write("oligo_id\treference\tstart\tend\n")
+            for ref_id, mlist in sorted(mappings_dict.items()):
+                for m in sorted(mlist, key=lambda x: x.start):
+                    if m.key in selected_oligos:
+                        f.write(f"{m.oligo_id}\t{ref_id}\t{m.start}\t{m.end}\n")
+        logging.info(f"Selected mappings written to {mappings_out}")
         
         # Final coverage check
         coverage_bed = self.coverage_calculator.coverage_from_selected(
@@ -124,8 +148,6 @@ class GapFillingProcessor:
             self.coverage_calculator.calculate_coverage(
                 coverage_bed,
                 args.min_coverage,
-                args.max_coverage,
-                args.temp_dir,
                 genome_file
             )
         
@@ -148,14 +170,8 @@ class GapFillingProcessor:
         
         # Uncovered regions
         if args.longest_uncovered_out:
-            from baitUtils.coverage_checking import UncoveredRegionAnalyzer
-            uncovered_list = [
-                (ref, s, e, 0.0) 
-                for ref, intervals in uncovered.items() 
-                for (s, e) in intervals
-            ]
-            count_uncovered = UncoveredRegionAnalyzer.write_uncovered_regions(
-                uncovered_list, args.longest_uncovered_out, args.uncovered_length_cutoff
+            count_uncovered = write_uncovered_regions(
+                uncovered, args.longest_uncovered_out, args.uncovered_length_cutoff
             )
             logging.info(f"Wrote {count_uncovered} uncovered stretches >= "
                         f"{args.uncovered_length_cutoff}bp to {args.longest_uncovered_out}")
@@ -165,7 +181,6 @@ class GapFillingProcessor:
             if not args.n_split_fasta:
                 logging.warning("--n_split_fasta not specified, skipping N-split output")
             else:
-                from baitUtils.coverage_checking import SequenceProcessor
                 SequenceProcessor.export_uncovered_fasta(
                     uncovered,
                     args.reference,
@@ -192,10 +207,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                             "and export of uncovered regions")
     
     # Coverage parameters
-    parser.add_argument("--min_coverage", type=int, default=1,
+    parser.add_argument("--min_coverage", type=float, default=1.0,
                        help="Minimum coverage required per base (default=1)")
-    parser.add_argument("--max_coverage", type=float,
-                       help="Maximum coverage allowed per base")
     
     # Selection parameters
     parser.add_argument("--spacing_distance", type=int, default=30,
@@ -208,8 +221,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="Maximum number of oligos to select in each pass")
     parser.add_argument("--stall_rounds", type=int, default=3,
                        help="Number of rounds without improvement before stopping (default=3)")
-    parser.add_argument("--force", action="store_true",
-                       help="Continue selection even if uncovered regions don't decrease")
     
     # Filtering parameters
     parser.add_argument("--min_length", type=int, default=100,
@@ -224,9 +235,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="Output file path for selected oligos")
     parser.add_argument("--coverage_out", type=Path,
                        help="Output file for coverage data")
-    parser.add_argument("--longest_uncovered_out", type=Path, 
-                       default=Path("longest_uncovered.txt"),
-                       help="Output file for uncovered regions")
+    parser.add_argument("--longest_uncovered_out", type=Path,
+                       help="Output file for uncovered regions after selection")
     parser.add_argument("--uncovered_fasta", type=Path,
                        help="Output FASTA file for uncovered regions")
     parser.add_argument("--n_split_fasta", type=Path,
@@ -240,7 +250,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     
     # System parameters
     parser.add_argument("--temp_dir", type=Path,
-                       help="Directory for temporary files")
+                       help="Parent directory for the run's temporary directory (default: system temp)")
     parser.add_argument("--log_level", 
                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                        default="INFO", help="Set logging level")

@@ -210,7 +210,6 @@ class TestCompareCommandArguments(unittest.TestCase):
         self.assertEqual(args.multiple_comparison_correction, 'fdr')
         self.assertEqual(args.plot_format, 'png')
         self.assertEqual(args.plot_dpi, 300)
-        self.assertFalse(args.keep_intermediates)
         self.assertFalse(args.quiet)
         self.assertFalse(args.log)
     
@@ -229,7 +228,6 @@ class TestCompareCommandArguments(unittest.TestCase):
             '--significance-level', '0.01',
             '--multiple-comparison-correction', 'bonferroni',
             '--plot-format', 'pdf',
-            '--keep-intermediates',
             '--quiet'
         ])
         
@@ -239,7 +237,6 @@ class TestCompareCommandArguments(unittest.TestCase):
         self.assertEqual(args.significance_level, 0.01)
         self.assertEqual(args.multiple_comparison_correction, 'bonferroni')
         self.assertEqual(args.plot_format, 'pdf')
-        self.assertTrue(args.keep_intermediates)
         self.assertTrue(args.quiet)
     
     def test_multiple_sets_parsing(self):

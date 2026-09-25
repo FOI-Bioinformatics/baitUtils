@@ -10,11 +10,12 @@ Refactored from check.py for better organization and maintainability.
 import argparse
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 from baitUtils._version import __version__
 from baitUtils.bedtools_support import require_bedtools
-from baitUtils.coverage_checking import CoverageChecker, PSLToBedConverter, ForcedOligoFilter
+from baitUtils.coverage_analysis import CoverageChecker, PSLParser, ForcedOligoHandler
 
 
 class CoverageEvaluationProcessor:
@@ -23,8 +24,8 @@ class CoverageEvaluationProcessor:
     def __init__(self):
         """Initialize coverage evaluation processor."""
         self.coverage_checker = CoverageChecker()
-        self.psl_converter = PSLToBedConverter()
-        self.forced_filter = ForcedOligoFilter()
+        self.psl_converter = PSLParser()
+        self.forced_filter = ForcedOligoHandler()
     
     def process_command(self, args) -> None:
         """
@@ -37,33 +38,36 @@ class CoverageEvaluationProcessor:
         self._setup_logging(args.log_level)
         require_bedtools()
 
-        # Read forced oligos
+        import pybedtools
         forced_oligos = self.forced_filter.read_forced_oligos(args.forced_oligos)
         
-        # Parse PSL to BED
-        bed = self.psl_converter.parse_psl_to_bed(
-            args.psl,
-            args.min_length,
-            args.min_similarity,
-            args.temp_dir
-        )
-        
-        if bed.count() == 0:
-            logging.error("No intervals found in PSL after filtering. Exiting.")
-            sys.exit(1)
-        
-        # Check coverage
-        self.coverage_checker.check_coverage(
-            bed,
-            forced_oligos,
-            args.min_coverage,
-            args.max_coverage,
-            args.coverage_out,
-            args.longest_uncovered_out,
-            args.temp_dir,
-            args.uncovered_length_cutoff,
-            args
-        )
+        if args.temp_dir:
+            Path(args.temp_dir).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="baitUtils_check_", dir=args.temp_dir) as tmp:
+            work_dir = Path(tmp)
+            previous_tempdir = tempfile.tempdir
+            pybedtools.set_tempdir(str(work_dir))  # sets tempfile.tempdir globally
+            try:
+                bed = self.psl_converter.parse_psl_to_bed(
+                    args.psl, args.min_length, args.min_similarity, work_dir, "temp_check.bed"
+                )
+                if bed.count() == 0:
+                    logging.error("No intervals found in PSL after filtering. Exiting.")
+                    sys.exit(1)
+                
+                self.coverage_checker.check_coverage(
+                    bed,
+                    forced_oligos,
+                    args.min_coverage,
+                    args.coverage_out,
+                    args.longest_uncovered_out,
+                    work_dir,
+                    args.uncovered_length_cutoff,
+                    args
+                )
+            finally:
+                pybedtools.cleanup(remove_all=True)
+                tempfile.tempdir = previous_tempdir
     
     def _setup_logging(self, log_level: str = "INFO") -> None:
         """Configure logging settings."""
@@ -90,8 +94,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # Coverage parameters
     parser.add_argument("--min_coverage", type=float, default=10.0,
                        help="Minimum coverage required per base (default=10.0)")
-    parser.add_argument("--max_coverage", type=float,
-                       help="Maximum coverage allowed per base")
     
     # Filtering parameters
     parser.add_argument("--min_length", type=int, default=100,
@@ -120,7 +122,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     
     # System parameters
     parser.add_argument("--temp_dir", type=Path,
-                       help="Directory for temporary files")
+                       help="Parent directory for the run's temporary directory (default: system temp)")
     parser.add_argument("--log_level",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                        default="INFO", help="Set logging level")

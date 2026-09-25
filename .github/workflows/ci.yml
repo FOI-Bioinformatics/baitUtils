@@ -64,9 +64,9 @@ jobs:
 
     - name: Lint with ruff
       run: |
-        # Stop the build if there are Python syntax errors or undefined names
-        ruff check baitUtils/ --select=E9,F63,F7,F82 --output-format=full
-        # Exit-zero treats all errors as warnings
+        # Syntax errors, undefined names, unused imports and variables fail the build
+        ruff check baitUtils/ --select=E9,F63,F7,F82,F401,F811,F841 --output-format=full
+        # Everything else is reported only
         ruff check baitUtils/ --exit-zero --statistics
 
     - name: Lint with flake8
@@ -94,50 +94,9 @@ jobs:
         python -m baitUtils evaluate --help
         python -m baitUtils compare --help
 
-    - name: Run core functionality tests
+    - name: Run test suite
       run: |
-        # Run tests that are most likely to pass and test core functionality
-        python -c "
-        # Test core imports work
-        from baitUtils.sequence_analysis import SequenceAnalyzer
-        from baitUtils.sequence_statistics import SequenceStatsCalculator  
-        from baitUtils.plotting_utils import StatisticalPlotter
-        from baitUtils.mapping_utils import SequenceMapper
-        from baitUtils.coverage_checking import CoverageChecker
-        from baitUtils.gap_filling_algorithm import MultiPassSelector
-        print('[OK] All core modules import successfully')
-        
-        # Test basic functionality
-        analyzer = SequenceAnalyzer()
-        gc = analyzer.calculate_gc_content('ATGCGC')
-        assert 60 <= gc <= 70, f'GC content calculation failed: {gc}'
-        print(f'[OK] GC content calculation works: {gc:.1f}%')
-        
-        entropy = analyzer.calculate_entropy('ATGC')
-        assert entropy > 0, f'Entropy calculation failed: {entropy}'
-        print(f'[OK] Entropy calculation works: {entropy:.2f}')
-        
-        print('[OK] Core functionality tests passed')
-        "
-
-    - name: Run smoke tests (must pass)
-      run: |
-        # Run comprehensive smoke tests - these should always pass
-        pytest tests/test_smoke.py -v --tb=short
-        
-    - name: Run stable unit tests (allow some failures)  
-      continue-on-error: true
-      run: |
-        # Run some stable tests but allow failures
-        pytest tests/test_compare_command.py::TestCompareCommandArguments -v || echo "Some tests failed, but continuing..."
-        pytest tests/test_compare_command.py::TestCompareCommand::test_add_arguments -v || echo "Some tests failed, but continuing..."
-        
-    - name: Run full test suite (allow failures for now)
-      continue-on-error: true
-      run: |
-        # Run full test suite but don't fail CI if tests fail
-        # This gives us visibility into test status without blocking CI
-        pytest tests/ -v --tb=short --strict-warnings || echo "Full test suite has failures - needs investigation"
+        pytest tests/ -v --tb=short
 
     - name: Test with coverage
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -154,6 +113,36 @@ jobs:
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
+
+  external-tools:
+    # Runs the tests that need pblat, bedtools and ViennaRNA
+    runs-on: ubuntu-latest
+    needs: test
+    if: success()
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up conda environment
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: latest
+        python-version: '3.12'
+        channels: conda-forge,bioconda
+        channel-priority: strict
+        activate-environment: baitutils-tools
+
+    - name: Install external tools and package
+      run: |
+        conda install -y pybedtools bedtools pblat viennarna pytest
+        pip install -e .
+
+    - name: Run test suite with external tools
+      run: |
+        pytest tests/ -v --tb=short -rs
 
   integration-test:
     runs-on: ubuntu-latest

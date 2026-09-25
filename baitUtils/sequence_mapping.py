@@ -11,7 +11,6 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
 
 from baitUtils._version import __version__
 from baitUtils.mapping_utils import (
@@ -182,10 +181,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help='Input sequences FASTA file')
     parser.add_argument('-q', '--query', required=True,
                        help='Target genome FASTA file to map against')
-    parser.add_argument('-o', '--outprefix', default='out',
-                       help='Output file prefix (default: out)')
-    parser.add_argument('-Z', '--outdir', default='.',
-                       help='Output directory path (default: ./)')
+    parser.add_argument('-o', '--outdir', default='.',
+                       help='Output directory (default: current directory)')
+    parser.add_argument('--prefix', dest='outprefix', default='out',
+                       help='Prefix for output file names (default: out)')
     
     # Mapping parameters
     parser.add_argument('--mapper', choices=['pblat'], default='pblat',

@@ -56,7 +56,7 @@ class TestMap:
         outdir = tmp_path / "map"
         outdir.mkdir()
         run_cli(["map", "-i", dataset["baits"], "-q", dataset["reference"],
-                 "-o", "run", "-Z", outdir, "--filterIdentity", "90"])
+                 "-o", outdir, "--prefix", "run", "--filterIdentity", "90"])
 
         mapped = (outdir / "run-mapped-sequence-ids.txt").read_text().split()
         unmapped = (outdir / "run-unmapped-sequence-ids.txt").read_text().split()
@@ -74,7 +74,7 @@ class TestMap:
         outdir = tmp_path / "map"
         outdir.mkdir()
         run_cli(["map", "-i", dataset["baits"], "-q", dataset["reference"],
-                 "-o", "run", "-Z", outdir, "--max-hits", "0"])
+                 "-o", outdir, "--prefix", "run", "--max-hits", "0"])
         mapped = (outdir / "run-mapped-sequence-ids.txt").read_text().split()
         assert mapped == []
 
@@ -124,8 +124,10 @@ class TestCheckAndFill:
     def test_check_reports_hole(self, dataset, tmp_path, run_cli, monkeypatch):
         monkeypatch.chdir(tmp_path)
         uncovered = tmp_path / "uncovered.txt"
+        before = set(tmp_path.iterdir())
         run_cli(["check", "--psl", dataset["psl"], "--reference", dataset["reference"],
                  "--min_coverage", "1", "--longest_uncovered_out", uncovered])
+        assert set(tmp_path.iterdir()) - before == {uncovered}
         rows = [line.split() for line in uncovered.read_text().splitlines()
                 if line.strip() and not line.lower().startswith(("reference", "chrom", "#"))]
         regions = {(r[0], int(r[1]), int(r[2])) for r in rows}
@@ -137,10 +139,16 @@ class TestCheckAndFill:
     def test_fill_selects_oligos(self, dataset, tmp_path, run_cli, monkeypatch):
         monkeypatch.chdir(tmp_path)
         selected = tmp_path / "selected.txt"
+        before = set(tmp_path.iterdir())
         run_cli(["fill", "--psl", dataset["psl"], "--reference", dataset["reference"],
                  "--output", selected, "--min_contribution", "1"])
         assert selected.exists()
         assert len(selected.read_text().split()) > 0
+        mappings = pd.read_csv(tmp_path / "selected_mappings.tsv", sep="\t")
+        assert set(mappings.columns) == {"oligo_id", "reference", "start", "end"}
+        assert set(mappings["oligo_id"]) == set(selected.read_text().split())
+        # No temporary files are left in the working directory
+        assert set(tmp_path.iterdir()) - before == {selected, tmp_path / "selected_mappings.tsv"}
 
 
 class TestMissingDependencies:

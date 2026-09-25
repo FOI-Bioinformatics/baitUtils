@@ -17,12 +17,23 @@ from dataclasses import dataclass
 
 @dataclass
 class OligoMapping:
-    """Represents a single oligo mapping."""
+    """One alignment of an oligo to a reference, spanning its aligned blocks."""
     oligo_id: str
     ref_id: str
     start: int
     end: int
-    coverage: float = 1.0
+    score: float = 1.0
+    hit_id: str = "0"
+    blocks: Optional[List[Tuple[int, int]]] = None
+
+    def __post_init__(self):
+        if self.blocks is None:
+            self.blocks = [(self.start, self.end)]
+
+    @property
+    def key(self) -> Tuple[str, str, str]:
+        """Identifies this mapping (oligo, reference, hit) rather than the oligo alone."""
+        return (self.oligo_id, self.ref_id, self.hit_id)
 
 
 class CoveragePatternAnalyzer:
@@ -176,17 +187,17 @@ class GreedySelector:
         self,
         all_mappings: Dict[str, List[OligoMapping]],
         uncovered: Dict[str, List[Tuple[int, int]]],
-        selected_oligos: Set[str],
+        selected: Set[Tuple[str, str, str]],
         spacing_distance: int,
         min_contribution: int,
         sequences: Optional[Dict[str, str]] = None,
         max_oligos_per_pass: Optional[int] = None
-    ) -> Set[str]:
-        """Perform a single pass of greedy selection based on scoring."""
+    ) -> Set[Tuple[str, str, str]]:
+        """Perform a single pass of greedy selection; returns selected mapping keys."""
         selected_positions = defaultdict(list)
         for ref_id, mlist in all_mappings.items():
             for m in mlist:
-                if m.oligo_id in selected_oligos:
+                if m.key in selected:
                     bisect.insort(selected_positions[ref_id], (m.start, m.end))
 
         difficulty_scores = self.pattern_analyzer.analyze_coverage_patterns(
@@ -196,7 +207,7 @@ class GreedySelector:
         candidate_list = []
         for ref_id, mlist in all_mappings.items():
             for m in mlist:
-                if m.oligo_id in selected_oligos:
+                if m.key in selected:
                     continue
 
                 seq_slice = None
@@ -226,7 +237,7 @@ class GreedySelector:
             if self.spacing_checker.can_select_oligo(
                 selected_positions, cand_oligo, spacing_distance
             ):
-                new_selected.add(cand_oligo.oligo_id)
+                new_selected.add(cand_oligo.key)
                 bisect.insort(
                     selected_positions[cand_oligo.ref_id],
                     (cand_oligo.start, cand_oligo.end)
@@ -254,26 +265,21 @@ class MultiPassSelector:
         forced_oligos: Set[str],
         coverage_calculator,  # Function to calculate coverage
         min_coverage: float,
-        max_coverage: Optional[float],
         spacing_distance: int,
         min_contribution: int,
         max_passes: int,
         max_oligos_per_pass: Optional[int] = None,
         sequences: Optional[Dict[str, str]] = None,
-        force: bool = False,
         uncovered_length_cutoff: int = 0,
         stall_rounds: int = 3
-    ) -> Set[str]:
+    ) -> Set[Tuple[str, str, str]]:
         """
-        Perform multi-pass coverage selection until coverage 
-        stops improving or max passes is reached.
+        Perform multi-pass selection until coverage stops improving or
+        max_passes is reached. Returns the keys of the selected mappings;
+        every mapping of a forced oligo is selected up front.
         """
-        all_oligo_ids = set()
-        for ref_id, mapping_list in all_mappings.items():
-            for m in mapping_list:
-                all_oligo_ids.add(m.oligo_id)
-
-        selected_oligos = set(forced_oligos).intersection(all_oligo_ids)
+        selected_oligos = {m.key for mlist in all_mappings.values() for m in mlist
+                           if m.oligo_id in forced_oligos}
         prev_uncovered = float('inf')
         prev_uncovered_count = float('inf')
         stall_count = 0
@@ -283,7 +289,7 @@ class MultiPassSelector:
             logging.info(f"Multi-pass iteration {pass_num}/{max_passes}")
 
             uncovered_regions, total_uncovered = coverage_calculator(
-                selected_oligos, all_mappings, min_coverage, max_coverage
+                selected_oligos, all_mappings, min_coverage
             )
             
             uncovered_count = sum(
@@ -296,16 +302,15 @@ class MultiPassSelector:
             logging.info(f"Uncovered regions >= {uncovered_length_cutoff}bp: {uncovered_count}")
 
             # Check improvement in uncovered region count
-            if not force:
-                if uncovered_count >= prev_uncovered_count:
-                    stall_count += 1
-                    logging.info(f"No improvement in uncovered region count. "
-                               f"Stall count: {stall_count}/{stall_rounds}")
-                    if stall_count >= stall_rounds:
-                        logging.info(f"Stopping after {stall_rounds} rounds without improvement.")
-                        break
-                else:
-                    stall_count = 0
+            if uncovered_count >= prev_uncovered_count:
+                stall_count += 1
+                logging.info(f"No improvement in uncovered region count. "
+                           f"Stall count: {stall_count}/{stall_rounds}")
+                if stall_count >= stall_rounds:
+                    logging.info(f"Stopping after {stall_rounds} rounds without improvement.")
+                    break
+            else:
+                stall_count = 0
                 
             if total_uncovered >= prev_uncovered:
                 logging.info("No improvement in uncovered base count. Stopping.")

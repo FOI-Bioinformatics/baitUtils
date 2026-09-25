@@ -10,11 +10,9 @@ and gap analysis visualizations.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, Any
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
 import warnings

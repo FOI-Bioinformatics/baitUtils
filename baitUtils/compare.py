@@ -15,9 +15,8 @@ Usage:
 import argparse
 import logging
 import sys
-import tempfile
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from baitUtils._version import __version__
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
@@ -85,10 +84,10 @@ def add_arguments(parser):
     
     # Analysis options
     parser.add_argument(
-        '--enable-statistical-analysis',
-        action='store_true',
-        default=True,
-        help='Enable statistical significance testing (default: enabled)'
+        '--no-statistical-analysis',
+        dest='enable_statistical_analysis',
+        action='store_false',
+        help='Skip statistical significance testing'
     )
     parser.add_argument(
         '--significance-level',
@@ -118,11 +117,6 @@ def add_arguments(parser):
     )
     
     # Output control
-    parser.add_argument(
-        '--keep-intermediates',
-        action='store_true',
-        help='Keep intermediate mapping files'
-    )
     parser.add_argument(
         '--quiet',
         action='store_true',
@@ -231,12 +225,6 @@ def main(args):
         'statistics': statistics,
     }, output_dir / "comparison.json")
     exported_files['json'] = str(json_file)
-    
-    # Copy intermediate files if requested
-    if args.keep_intermediates:
-        intermediates_dir = output_dir / "intermediates"
-        intermediates_dir.mkdir(exist_ok=True)
-        logging.info(f"Intermediate files would be saved to {intermediates_dir}")
     
     # Print summary
     print_summary(analyzer, comparison_matrix, plots, report_file, exported_files)
@@ -356,7 +344,7 @@ def print_summary(analyzer: ComparativeAnalyzer, comparison_matrix, plots: Dict[
         oligo_set = next(result for result in analyzer.oligo_sets if result.name == name)
         print(f"  {i}. {name:<20} Score: {score:.2f}, Category: {oligo_set.quality_score.category.value}")
     
-    print(f"\nResults Summary:")
+    print("\nResults Summary:")
     print(f"  📊 Interactive Report:   {Path(report_file).name}")
     print(f"  📈 Visualizations:       {len(plots)} plots generated")
     print(f"  📋 Data Exports:         {len(exported_files)} files exported")

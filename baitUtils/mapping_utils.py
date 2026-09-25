@@ -14,6 +14,8 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Set, Dict, Optional, List, Iterator, Iterable, Tuple, Union
 from pathlib import Path
+
+import pandas as pd
 from Bio import SeqIO
 
 
@@ -143,7 +145,7 @@ def parse_psl(psl_path: Union[str, Path]) -> Iterator[PSLHit]:
         logging.warning(f"Skipped {skipped} malformed line(s) in {psl_path}")
 
 
-def build_hit_table(hits: Iterable[PSLHit]) -> "pd.DataFrame":
+def build_hit_table(hits: Iterable[PSLHit]) -> pd.DataFrame:
     """
     Summarise hits per query (bait) for off-target assessment.
 
@@ -151,8 +153,6 @@ def build_hit_table(hits: Iterable[PSLHit]) -> "pd.DataFrame":
     best_target, best_start, best_end, best_strand, best_aligned_length.
     Hits are ranked by identity, then aligned length.
     """
-    import pandas as pd
-
     per_query: Dict[str, List[PSLHit]] = {}
     for hit in hits:
         per_query.setdefault(hit.q_name, []).append(hit)

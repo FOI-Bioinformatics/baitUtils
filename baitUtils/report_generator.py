@@ -10,18 +10,15 @@ and collapsible sections for detailed analysis.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 import json
-import base64
-import io
 
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 import plotly.offline as pyo
+
+from baitUtils.templates import load_template
 
 
 class InteractiveReportGenerator:
@@ -33,7 +30,8 @@ class InteractiveReportGenerator:
         gap_analysis: Dict[str, Any],
         quality_scores: Dict[str, Any],
         reference_analysis: Dict[str, Any],
-        output_dir: Path
+        output_dir: Path,
+        offline_plots: bool = False
     ):
         """
         Initialize the interactive report generator.
@@ -50,6 +48,7 @@ class InteractiveReportGenerator:
         self.quality_scores = quality_scores
         self.reference_analysis = reference_analysis
         self.output_dir = Path(output_dir)
+        self.offline_plots = offline_plots
         
         # Report metadata
         self.report_title = "baitUtils Coverage Evaluation Report"
@@ -591,6 +590,10 @@ class InteractiveReportGenerator:
         """Assemble final HTML document."""
         css_styles = self._get_css_styles()
         js_scripts = self._get_js_scripts()
+        if self.offline_plots:
+            plotly_script = f"<script>{pyo.get_plotlyjs()}</script>"
+        else:
+            plotly_script = '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
         
         html_content = f"""
         <!DOCTYPE html>
@@ -599,7 +602,7 @@ class InteractiveReportGenerator:
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>{self.report_title}</title>
-            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            {plotly_script}
             <style>{css_styles}</style>
         </head>
         <body>
@@ -614,269 +617,12 @@ class InteractiveReportGenerator:
         return html_content
     
     def _get_css_styles(self) -> str:
-        """Get CSS styles for the report."""
-        return """
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background-color: #f5f5f5;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-        }
-        
-        .report-header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding: 30px 0;
-            border-bottom: 3px solid #4CAF50;
-        }
-        
-        .report-header h1 {
-            color: #2c3e50;
-            font-size: 2.5rem;
-            margin-bottom: 15px;
-        }
-        
-        .metadata {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            text-align: left;
-            display: inline-block;
-        }
-        
-        .parameters {
-            list-style: none;
-            margin-top: 10px;
-        }
-        
-        .parameters li {
-            padding: 2px 0;
-        }
-        
-        .executive-summary {
-            margin-bottom: 30px;
-        }
-        
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        
-        .metric-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 25px;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        }
-        
-        .metric-card.quality-card {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            border: 3px solid;
-        }
-        
-        .metric-value {
-            font-size: 2.2rem;
-            font-weight: bold;
-            margin-bottom: 8px;
-        }
-        
-        .metric-label {
-            font-size: 1rem;
-            opacity: 0.9;
-        }
-        
-        .quality-score {
-            font-size: 0.9rem;
-            margin-top: 5px;
-            opacity: 0.8;
-        }
-        
-        .section {
-            margin-bottom: 40px;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-        
-        .section h2 {
-            color: #2c3e50;
-            border-bottom: 2px solid #4CAF50;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .plot-container {
-            margin: 20px 0;
-            padding: 15px;
-            background: #fafafa;
-            border-radius: 5px;
-        }
-        
-        .collapsible {
-            margin: 20px 0;
-        }
-        
-        .collapsible-header {
-            background-color: #4CAF50;
-            color: white;
-            cursor: pointer;
-            padding: 15px;
-            width: 100%;
-            border: none;
-            text-align: left;
-            outline: none;
-            font-size: 16px;
-            border-radius: 5px;
-            transition: background-color 0.3s;
-        }
-        
-        .collapsible-header:hover {
-            background-color: #45a049;
-        }
-        
-        .collapsible-header:after {
-            content: '+';
-            float: right;
-            font-weight: bold;
-        }
-        
-        .collapsible-header.active:after {
-            content: '-';
-        }
-        
-        .collapsible-content {
-            padding: 0;
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease-out;
-            background-color: #f1f1f1;
-        }
-        
-        .collapsible-content.active {
-            padding: 15px;
-            max-height: 1000px;
-        }
-        
-        .stats-table, .gaps-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-        }
-        
-        .stats-table th, .stats-table td,
-        .gaps-table th, .gaps-table td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        .stats-table th, .gaps-table th {
-            background-color: #f2f2f2;
-            font-weight: bold;
-        }
-        
-        .stats-table tr:hover, .gaps-table tr:hover {
-            background-color: #f5f5f5;
-        }
-        
-        .recommendations ol {
-            padding-left: 20px;
-        }
-        
-        .recommendations li {
-            margin: 10px 0;
-            padding: 10px;
-            background: #f8f9fa;
-            border-left: 4px solid #4CAF50;
-        }
-        
-        .exports-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        
-        .export-item {
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            text-align: center;
-        }
-        
-        .download-btn {
-            display: inline-block;
-            padding: 10px 20px;
-            background: #4CAF50;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            margin-top: 10px;
-            transition: background-color 0.3s;
-        }
-        
-        .download-btn:hover {
-            background: #45a049;
-        }
-        
-        @media (max-width: 768px) {
-            .summary-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .container {
-                padding: 10px;
-            }
-            
-            .report-header h1 {
-                font-size: 2rem;
-            }
-        }
-        """
+        """Load the report stylesheet from the package templates."""
+        return load_template("report.css")
     
     def _get_js_scripts(self) -> str:
-        """Get JavaScript for interactive functionality."""
-        return """
-        // Collapsible sections
-        document.querySelectorAll('.collapsible-header').forEach(function(header) {
-            header.addEventListener('click', function() {
-                this.classList.toggle('active');
-                var content = this.nextElementSibling;
-                content.classList.toggle('active');
-                
-                if (content.classList.contains('active')) {
-                    content.style.maxHeight = content.scrollHeight + 'px';
-                } else {
-                    content.style.maxHeight = '0';
-                }
-            });
-        });
-        
-        // Smooth scrolling for internal links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-            });
-        });
-        """
+        """Load the report script from the package templates."""
+        return load_template("report.js")
     
     def export_data_files(self) -> None:
         """Export data files referenced in the report."""

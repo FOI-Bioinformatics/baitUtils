@@ -1,7 +1,6 @@
 # baitUtils/__main__.py
 
 import argparse
-import sys
 from baitUtils._version import __version__
 
 # Import refactored subcommands

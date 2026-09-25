@@ -388,10 +388,10 @@ def validate_columns(df: pd.DataFrame, columns: Optional[List[str]],
             logging.warning(f"Non-numeric columns will be skipped: {non_numeric}")
         validated_cols = numeric_cols
     else:
-        # Select all numeric columns excluding 'Kept' if used for coloring
+        # Select all numeric columns excluding 'kept' if used for colouring
         validated_cols = df.select_dtypes(include='number').columns.tolist()
-        if 'Kept' in validated_cols:
-            validated_cols.remove('Kept')
+        if 'kept' in validated_cols:
+            validated_cols.remove('kept')
     
     # Check if we have enough columns for multi-column plots
     required_plots = {'scatterplot', 'jointplot', 'pca', 'heatmap', 'pairplot'}

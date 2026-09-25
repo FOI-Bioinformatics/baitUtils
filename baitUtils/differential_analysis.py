@@ -21,7 +21,6 @@ P-values within each family of tests are adjusted for multiple comparisons
 with the configured method and stored in p_adjusted.
 """
 
-import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 

@@ -13,15 +13,13 @@ Usage:
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List
 import subprocess
 import tempfile
 import shutil
 
-from Bio import SeqIO
 from baitUtils._version import __version__
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
@@ -125,16 +123,21 @@ def add_arguments(parser):
     
     # Phase 2 features
     parser.add_argument(
-        '--enable-html-report',
-        action='store_true',
-        default=True,
-        help='Generate interactive HTML report (default: enabled)'
+        '--no-html-report',
+        dest='enable_html_report',
+        action='store_false',
+        help='Skip the interactive HTML report'
     )
     parser.add_argument(
-        '--enable-interactive-plots',
+        '--no-interactive-plots',
+        dest='enable_interactive_plots',
+        action='store_false',
+        help='Skip interactive plots'
+    )
+    parser.add_argument(
+        '--offline-plots',
         action='store_true',
-        default=True,
-        help='Generate interactive plots (default: enabled)'
+        help='Embed plotly.js in the HTML report instead of loading it from a CDN'
     )
     parser.add_argument(
         '--reference-analysis-window',
@@ -143,10 +146,10 @@ def add_arguments(parser):
         help='Window size for reference sequence analysis (default: 1000)'
     )
     parser.add_argument(
-        '--enable-benchmarking',
-        action='store_true',
-        default=True,
-        help='Enable benchmarking against theoretical optimal (default: enabled)'
+        '--no-benchmarking',
+        dest='enable_benchmarking',
+        action='store_false',
+        help='Skip benchmarking against design targets'
     )
     
     # Output control
@@ -282,7 +285,8 @@ def main(args):
                     gap_analysis=gap_analysis,
                     reference_analysis=reference_analysis,
                     quality_scores=quality_score.to_dict(),
-                    output_dir=output_dir
+                    output_dir=output_dir,
+                    offline_plots=args.offline_plots
                 )
                 report_generator.generate_report()
         
@@ -362,8 +366,8 @@ def perform_mapping(args, temp_dir: Path) -> Path:
         'pblat',
         f'-threads={args.threads}',
         f'-minIdentity={args.min_identity}',
-        f'-minScore=30',
-        f'-minMatch=2',
+        '-minScore=30',
+        '-minMatch=2',
         args.reference,
         args.input,
         str(psl_file)

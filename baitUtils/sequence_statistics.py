@@ -13,11 +13,11 @@ import multiprocessing
 import os
 import gzip
 from pathlib import Path
-from typing import List, Dict, Any, Optional, IO, TextIO
+from typing import List, Dict, Any, Optional
 from Bio import SeqIO
 
 from baitUtils._version import __version__
-from baitUtils.sequence_analysis import SequenceAnalyzer, clean_sequence
+from baitUtils.sequence_analysis import SequenceAnalyzer
 
 
 class SequenceFilter:
