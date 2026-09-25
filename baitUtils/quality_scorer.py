@@ -46,13 +46,66 @@ class QualityScore:
 
 
 class QualityScorer:
-    """Comprehensive quality scoring system for coverage evaluation."""
+    """
+    Quality scoring system for coverage evaluation.
+
+    The overall score is a weighted sum of five component scores in 0-1.
+    Weights, targets and category thresholds are stated here so that they can
+    be cited and overridden. They are design conventions for 120 bp
+    hybridization baits at moderate tiling density, not fitted parameters.
+
+    Component            Weight  Rationale
+    -------------------  ------  -----------------------------------------------
+    coverage_breadth     0.30    Fraction of target covered is the primary goal
+    coverage_depth       0.20    Adequate and even depth aids capture efficiency
+    gap_characteristics  0.20    Few, short gaps are easier to close
+    mapping_efficiency   0.15    Oligos that do not map are wasted synthesis
+    reference_difficulty 0.15    Credit for hard references (repeats, extreme GC)
+
+    Target               Value   Meaning
+    -------------------  ------  -----------------------------------------------
+    coverage_breadth     95 %    Breadth at which breadth scores 1.0
+    mean_depth           20 x    Mean depth at which depth adequacy scores 1.0
+    depth_uniformity     0.8     Target uniformity expressed as 1 - Gini
+    mapping_efficiency   90 %    Mapped fraction at which efficiency scores 1.0
+    gap_percentage       2 %     Gap fraction at or below which gaps score 1.0
+    largest_gap          1000 bp Largest gap at or below which it scores 1.0
+
+    Category thresholds on the overall score: Excellent >= 0.85, Good >= 0.70,
+    Fair >= 0.50, otherwise Poor.
+    """
+
+    DEFAULT_WEIGHTS = {
+        'coverage_breadth': 0.30,
+        'coverage_depth': 0.20,
+        'mapping_efficiency': 0.15,
+        'gap_characteristics': 0.20,
+        'reference_difficulty': 0.15,
+    }
+
+    DEFAULT_BENCHMARKS = {
+        'coverage_breadth': 95.0,
+        'mean_depth': 20.0,
+        'depth_uniformity': 0.8,
+        'mapping_efficiency': 90.0,
+        'gap_percentage': 2.0,
+        'largest_gap': 1000,
+    }
+
+    DEFAULT_THRESHOLDS = {
+        'excellent': 0.85,
+        'good': 0.70,
+        'fair': 0.50,
+        'poor': 0.0,
+    }
     
     def __init__(
         self,
         coverage_stats: Dict[str, Any],
         gap_analysis: Dict[str, Any],
-        reference_analysis: Dict[str, Any] = None
+        reference_analysis: Dict[str, Any] = None,
+        weights: Optional[Dict[str, float]] = None,
+        benchmarks: Optional[Dict[str, float]] = None,
     ):
         """
         Initialize the quality scorer.
@@ -61,37 +114,20 @@ class QualityScorer:
             coverage_stats: Coverage statistics from CoverageAnalyzer
             gap_analysis: Gap analysis results from GapAnalyzer
             reference_analysis: Reference sequence analysis (optional)
+            weights: Overrides for DEFAULT_WEIGHTS
+            benchmarks: Overrides for DEFAULT_BENCHMARKS
         """
         self.coverage_stats = coverage_stats
         self.gap_analysis = gap_analysis
         self.reference_analysis = reference_analysis or {}
         
-        # Scoring weights (can be customized)
-        self.weights = {
-            'coverage_breadth': 0.30,      # Most important metric
-            'coverage_depth': 0.20,        # Depth adequacy and uniformity
-            'mapping_efficiency': 0.15,    # Oligo utilization
-            'gap_characteristics': 0.20,   # Gap size and distribution
-            'reference_difficulty': 0.15   # Reference sequence challenges
-        }
-        
-        # Quality thresholds
-        self.thresholds = {
-            'excellent': 0.85,
-            'good': 0.70,
-            'fair': 0.50,
-            'poor': 0.0
-        }
-        
-        # Benchmark values (ideal targets)
-        self.benchmarks = {
-            'coverage_breadth': 95.0,      # 95% coverage
-            'mean_depth': 20.0,            # 20x mean depth
-            'depth_uniformity': 0.8,       # Low CV (high uniformity)
-            'mapping_efficiency': 90.0,    # 90% oligos mapping
-            'gap_percentage': 2.0,         # <2% gaps
-            'largest_gap': 1000            # <1kb largest gap
-        }
+        self.weights = dict(self.DEFAULT_WEIGHTS)
+        if weights:
+            self.weights.update(weights)
+        self.benchmarks = dict(self.DEFAULT_BENCHMARKS)
+        if benchmarks:
+            self.benchmarks.update(benchmarks)
+        self.thresholds = dict(self.DEFAULT_THRESHOLDS)
     
     def calculate_quality_score(self) -> QualityScore:
         """

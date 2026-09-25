@@ -89,16 +89,20 @@ class TestCheckAndFill:
     def test_check_reports_hole(self, dataset, tmp_path, run_cli, monkeypatch):
         monkeypatch.chdir(tmp_path)
         uncovered = tmp_path / "uncovered.txt"
-        run_cli(["check", "--psl", dataset["psl"], "--fasta_reference", dataset["reference"],
+        run_cli(["check", "--psl", dataset["psl"], "--reference", dataset["reference"],
                  "--min_coverage", "1", "--longest_uncovered_out", uncovered])
-        text = uncovered.read_text()
-        chrom, start, end = dataset["expected"]["hole"]
-        assert chrom in text and str(start) in text and str(end) in text
+        rows = [line.split() for line in uncovered.read_text().splitlines()
+                if line.strip() and not line.lower().startswith(("reference", "chrom", "#"))]
+        regions = {(r[0], int(r[1]), int(r[2])) for r in rows}
+        assert dataset["expected"]["hole"] in regions
+        # Tails beyond the last mapped bait are reported because sizes come from the FASTA
+        assert ("chrA", 2940, 3000) in regions
+        assert ("chrB", 1920, 2000) in regions
 
     def test_fill_selects_oligos(self, dataset, tmp_path, run_cli, monkeypatch):
         monkeypatch.chdir(tmp_path)
         selected = tmp_path / "selected.txt"
-        run_cli(["fill", "--psl", dataset["psl"], "--fasta_reference", dataset["reference"],
+        run_cli(["fill", "--psl", dataset["psl"], "--reference", dataset["reference"],
                  "--output", selected, "--min_contribution", "1"])
         assert selected.exists()
         assert len(selected.read_text().split()) > 0
@@ -109,6 +113,6 @@ class TestMissingDependencies:
     def test_check_without_bedtools_exits_with_message(self, dataset, tmp_path, run_cli, capsys, monkeypatch):
         monkeypatch.chdir(tmp_path)
         with pytest.raises(SystemExit) as exc:
-            run_cli(["check", "--psl", dataset["psl"], "--fasta_reference", dataset["reference"]])
+            run_cli(["check", "--psl", dataset["psl"], "--reference", dataset["reference"]])
         assert exc.value.code != 0
         assert "bedtools" in str(exc.value.code).lower()

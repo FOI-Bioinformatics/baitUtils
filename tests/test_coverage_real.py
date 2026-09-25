@@ -93,3 +93,22 @@ class TestGapAnalyzerRealGaps:
         gap_analyzer = GapAnalyzer(coverage_data=analyzer.stats, reference_file=dataset["reference"])
         results = gap_analyzer.analyze()
         assert results["total_gaps"] == 0
+
+
+class TestMergeUncoveredIntervals:
+    def test_runs_are_merged_and_tails_kept_across_chromosomes(self):
+        from baitUtils.coverage_analysis import merge_uncovered_intervals
+        intervals = [
+            ("chrA", 0, 100, 1), ("chrA", 100, 150, 0), ("chrA", 150, 200, 0),
+            ("chrA", 200, 250, 2), ("chrA", 250, 300, 0),
+            ("chrB", 0, 40, 3), ("chrB", 40, 60, 0), ("chrB", 60, 80, 1),
+            ("genome", 0, 380, 0),
+        ]
+        regions, total = merge_uncovered_intervals(intervals, 1)
+        assert regions == {"chrA": [(100, 200), (250, 300)], "chrB": [(40, 60)]}
+        assert total == 170
+
+    def test_no_uncovered(self):
+        from baitUtils.coverage_analysis import merge_uncovered_intervals
+        regions, total = merge_uncovered_intervals([("chrA", 0, 10, 5)], 1)
+        assert regions == {} and total == 0

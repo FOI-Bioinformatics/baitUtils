@@ -27,6 +27,11 @@ from Bio.SeqRecord import SeqRecord
 from tqdm import tqdm
 
 
+def _merge_uncovered_intervals(intervals, min_coverage):
+    from baitUtils.coverage_analysis import merge_uncovered_intervals
+    return merge_uncovered_intervals(intervals, min_coverage)
+
+
 class PSLToBedConverter:
     """Converts PSL files to BED format for coverage analysis."""
     
@@ -75,17 +80,11 @@ class GenomeFileBuilder:
     """Builds genome files for bedtools operations."""
     
     @staticmethod
-    def create_genome_file(bed: Any, temp_dir: Optional[Path] = None) -> str:
-        """Build a genome file from BED intervals for bedtools genomecov."""
-        chrom_sizes = defaultdict(int)
-        for interval in bed:
-            chrom_sizes[interval.chrom] = max(chrom_sizes[interval.chrom], interval.end)
-
-        genome_path = "genome_check.txt" if temp_dir is None else str(temp_dir / "genome_check.txt")
-        with open(genome_path, "w") as gf:
-            for chrom, size in chrom_sizes.items():
-                gf.write(f"{chrom}\t{size}\n")
-        return genome_path
+    def create_genome_file(bed: Any, temp_dir: Optional[Path] = None,
+                           reference_fasta: Optional[Path] = None) -> str:
+        """Build a genome file for bedtools genomecov (see GenomeFileHandler)."""
+        from baitUtils.coverage_analysis import GenomeFileHandler
+        return GenomeFileHandler.create_genome_file(bed, temp_dir, reference_fasta)
 
 
 class UncoveredRegionAnalyzer:
@@ -99,56 +98,11 @@ class UncoveredRegionAnalyzer:
         genome_file: str
     ) -> Tuple[Dict[str, List[Tuple[int, int]]], int, Any]:
         """
-        Compute uncovered regions below min_coverage.
-        Returns uncovered intervals, total uncovered bases, and coverage bedtool.
+        Compute uncovered regions below min_coverage using bedtools genomecov output.
+        Returns dictionary of uncovered intervals, total uncovered bases, and the coverage tool.
         """
         coverage = coverage_bed.genomecov(bga=True, g=genome_file)
-
-        uncovered_regions = defaultdict(list)
-        total_uncovered = 0
-
-        curr_chrom = None
-        curr_start = None
-        prev_end = None
-
-        for interval in coverage:
-            chrom, start, end, cov = interval
-            if chrom == "genome":
-                continue
-            cov = float(cov)
-            start = int(start)
-            end = int(end)
-            length = end - start
-
-            if cov < min_coverage:
-                total_uncovered += length
-                if curr_chrom != chrom:
-                    if curr_chrom is not None and curr_start is not None:
-                        uncovered_regions[curr_chrom].append((curr_start, prev_end))
-                    curr_chrom = chrom
-                    curr_start = start
-                    prev_end = end
-                else:
-                    if curr_start is None:
-                        curr_start = start
-                        prev_end = end
-                    else:
-                        if prev_end == start:
-                            prev_end = end
-                        else:
-                            uncovered_regions[curr_chrom].append((curr_start, prev_end))
-                            curr_start = start
-                            prev_end = end
-            else:
-                if curr_chrom == chrom and curr_start is not None:
-                    uncovered_regions[curr_chrom].append((curr_start, prev_end))
-                curr_chrom = None
-                curr_start = None
-                prev_end = None
-
-        if curr_chrom is not None and curr_start is not None:
-            uncovered_regions[curr_chrom].append((curr_start, prev_end))
-
+        uncovered_regions, total_uncovered = _merge_uncovered_intervals(coverage, min_coverage)
         return uncovered_regions, total_uncovered, coverage
 
     @staticmethod
@@ -337,7 +291,7 @@ class CoverageChecker:
         )
         
         # Create genome file & compute coverage
-        genome_file = self.genome_builder.create_genome_file(bed_filtered, temp_dir)
+        genome_file = self.genome_builder.create_genome_file(bed_filtered, temp_dir, args.reference)
         uncovered_regions, total_uncovered, coverage = \
             self.uncovered_analyzer.compute_uncovered_regions(
                 bed_filtered, min_coverage, max_coverage, genome_file
@@ -393,13 +347,13 @@ class CoverageChecker:
                         f"{uncovered_length_cutoff}bp to {longest_uncovered_out}")
         
         # Uncovered FASTA
-        if args.uncovered_fasta and args.fasta_reference:
+        if args.uncovered_fasta and args.reference:
             if not args.n_split_fasta:
                 logging.warning("--n_split_fasta not specified, skipping N-split output")
             else:
                 self.sequence_processor.export_uncovered_fasta(
                     uncovered_regions,
-                    args.fasta_reference,
+                    args.reference,
                     args.uncovered_fasta,
                     args.n_split_fasta,
                     args.extend_region,

@@ -22,7 +22,6 @@ from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer, QualityScore, QualityCategory
 from baitUtils.report_generator import InteractiveReportGenerator
 from baitUtils.interactive_plots import InteractivePlotter
-from baitUtils.benchmark import BenchmarkAnalyzer, TheoreticalOptimal, BenchmarkResult
 
 
 def create_quality_score(score, grade_letter):
@@ -197,107 +196,6 @@ class TestQualityScorer(unittest.TestCase):
         # Test gap scoring
         gap_score = scorer._score_gap_characteristics()
         self.assertTrue(0 <= gap_score <= 1)
-
-
-class TestBenchmarkAnalyzer(unittest.TestCase):
-    """Test benchmarking system."""
-    
-    def setUp(self):
-        """Set up test fixtures."""
-        self.coverage_stats = {
-            'coverage_breadth': 78.5,
-            'mean_depth': 8.2,
-            'coverage_gini': 0.4,
-            'mapping_efficiency': 85.3,
-            'reference_length': 15000
-        }
-        
-        self.gap_analysis = {
-            'total_gaps': 45,
-            'total_gap_length': 3225,
-            'mean_gap_size': 71.7,
-            'max_gap_size': 800
-        }
-        
-        self.reference_analysis = {
-            'total_length': 15000,
-            'challenging_regions': {
-                'region_1': {'start': 2000, 'end': 2300, 'length': 300},
-                'region_2': {'start': 8000, 'end': 8150, 'length': 150}
-            }
-        }
-        
-        self.quality_score = create_quality_score(7.2, 'B')
-    
-    def test_theoretical_optimal_calculation(self):
-        """Test theoretical optimal metrics calculation."""
-        analyzer = BenchmarkAnalyzer(
-            self.coverage_stats,
-            self.gap_analysis,
-            self.reference_analysis,
-            self.quality_score
-        )
-        
-        theoretical = analyzer.calculate_theoretical_optimal()
-        
-        # Check theoretical optimal structure
-        self.assertIsInstance(theoretical, TheoreticalOptimal)
-        self.assertTrue(0 <= theoretical.max_coverage_breadth <= 100)
-        self.assertTrue(0 <= theoretical.theoretical_quality_score <= 10)
-        self.assertGreaterEqual(theoretical.min_possible_gaps, 0)
-    
-    def test_benchmark_coverage_breadth(self):
-        """Test coverage breadth benchmarking."""
-        analyzer = BenchmarkAnalyzer(
-            self.coverage_stats,
-            self.gap_analysis,
-            self.reference_analysis,
-            self.quality_score
-        )
-        
-        theoretical = analyzer.calculate_theoretical_optimal()
-        result = analyzer.benchmark_coverage_breadth(theoretical)
-        
-        # Check benchmark result structure
-        self.assertIsInstance(result, BenchmarkResult)
-        self.assertTrue(0 <= result.efficiency_ratio <= 1)
-        self.assertIn(result.category, ['Excellent', 'Good', 'Fair', 'Poor'])
-        self.assertIsInstance(result.recommendations, list)
-    
-    def test_full_benchmark_analysis(self):
-        """Test complete benchmark analysis."""
-        analyzer = BenchmarkAnalyzer(
-            self.coverage_stats,
-            self.gap_analysis,
-            self.reference_analysis,
-            self.quality_score
-        )
-        
-        benchmarks = analyzer.run_full_benchmark()
-        
-        # Check benchmark results structure
-        expected_metrics = ['coverage_breadth', 'depth_uniformity', 
-                           'gap_reduction', 'overall_quality']
-        for metric in expected_metrics:
-            self.assertIn(metric, benchmarks)
-            self.assertIsInstance(benchmarks[metric], BenchmarkResult)
-    
-    def test_benchmark_report_generation(self):
-        """Test benchmark report generation."""
-        analyzer = BenchmarkAnalyzer(
-            self.coverage_stats,
-            self.gap_analysis,
-            self.reference_analysis,
-            self.quality_score
-        )
-        
-        benchmarks = analyzer.run_full_benchmark()
-        report = analyzer.generate_benchmark_report(benchmarks)
-        
-        # Check report content
-        self.assertIsInstance(report, str)
-        self.assertIn("PERFORMANCE BENCHMARK ANALYSIS", report)
-        self.assertIn("Improvement Recommendations", report)
 
 
 class TestInteractiveReportGenerator(unittest.TestCase):

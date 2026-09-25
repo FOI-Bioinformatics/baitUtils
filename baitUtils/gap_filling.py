@@ -53,7 +53,7 @@ class GapFillingProcessor:
         
         # Set up analysis
         bed, mappings_dict, genome_file = self.coverage_orchestrator.setup_analysis(
-            args.psl, args.min_length, args.min_similarity, args.temp_dir
+            args.psl, args.min_length, args.min_similarity, args.temp_dir, args.reference
         )
         
         count = bed.count()
@@ -65,9 +65,9 @@ class GapFillingProcessor:
         
         # Load reference sequences if provided
         sequences = None
-        if args.reference_sequence:
+        if args.reference:
             sequences = self.sequence_loader.load_reference_sequences(
-                args.reference_sequence
+                args.reference
             )
         
         # Create coverage calculator for multi-pass selection
@@ -161,14 +161,14 @@ class GapFillingProcessor:
                         f"{args.uncovered_length_cutoff}bp to {args.longest_uncovered_out}")
         
         # Uncovered FASTA
-        if args.uncovered_fasta and args.fasta_reference:
+        if args.uncovered_fasta and args.reference:
             if not args.n_split_fasta:
                 logging.warning("--n_split_fasta not specified, skipping N-split output")
             else:
                 from baitUtils.coverage_checking import SequenceProcessor
                 SequenceProcessor.export_uncovered_fasta(
                     uncovered,
-                    args.fasta_reference,
+                    args.reference,
                     args.uncovered_fasta,
                     args.n_split_fasta,
                     args.extend_region,
@@ -187,10 +187,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="Path to PSL-like file")
     parser.add_argument("--forced_oligos", type=Path,
                        help="File with oligo IDs that must be included")
-    parser.add_argument("--reference_sequence", type=Path,
-                       help="Reference sequence file for sequence-based scoring")
-    parser.add_argument("--fasta_reference", type=Path,
-                       help="Reference FASTA file for exporting uncovered regions")
+    parser.add_argument("--reference", type=Path, required=True,
+                       help="Reference FASTA; used for reference sizes, sequence-based scoring "
+                            "and export of uncovered regions")
     
     # Coverage parameters
     parser.add_argument("--min_coverage", type=int, default=1,

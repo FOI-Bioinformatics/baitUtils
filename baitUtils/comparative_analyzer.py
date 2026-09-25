@@ -219,7 +219,6 @@ class ComparativeAnalyzer:
                 row['Coverage_Efficiency_%'] = result.benchmark_results['coverage_breadth'].efficiency_ratio * 100
                 row['Depth_Efficiency_%'] = result.benchmark_results['depth_uniformity'].efficiency_ratio * 100
                 row['Gap_Efficiency_%'] = result.benchmark_results['gap_reduction'].efficiency_ratio * 100
-                row['Overall_Efficiency_%'] = result.benchmark_results['overall_quality'].efficiency_ratio * 100
             
             data.append(row)
         

@@ -26,6 +26,45 @@ from Bio import SeqIO
 from baitUtils.gap_filling_algorithm import OligoMapping
 
 
+def merge_uncovered_intervals(
+    intervals: Any, min_coverage: float
+) -> Tuple[Dict[str, List[Tuple[int, int]]], int]:
+    """
+    Merge adjacent genomecov (bga) intervals whose depth is below min_coverage.
+
+    intervals yields (chrom, start, end, depth) tuples sorted by chromosome and
+    position, as bedtools genomecov -bga produces. Returns a dict of merged
+    (start, end) runs per chromosome and the total number of uncovered bases.
+    """
+    uncovered_regions: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+    total_uncovered = 0
+    run_chrom = None
+    run_start = None
+    run_end = None
+
+    def flush():
+        if run_chrom is not None:
+            uncovered_regions[run_chrom].append((run_start, run_end))
+
+    for interval in intervals:
+        chrom, start, end, cov = interval[0], int(interval[1]), int(interval[2]), float(interval[3])
+        if chrom == "genome":
+            continue
+        if cov < min_coverage:
+            total_uncovered += end - start
+            if run_chrom == chrom and run_end == start:
+                run_end = end
+            else:
+                flush()
+                run_chrom, run_start, run_end = chrom, start, end
+        else:
+            flush()
+            run_chrom = run_start = run_end = None
+
+    flush()
+    return dict(uncovered_regions), total_uncovered
+
+
 class PSLParser:
     """Parses PSL files into BED format."""
     
@@ -76,14 +115,23 @@ class GenomeFileHandler:
     """Handles genome file creation and management."""
     
     @staticmethod
-    def create_genome_file(bed: Any, temp_dir: Optional[Path] = None) -> str:
+    def create_genome_file(bed: Any, temp_dir: Optional[Path] = None,
+                           reference_fasta: Optional[Path] = None) -> str:
         """
-        Build a genome file from the sorted BED intervals 
-        (required by bedtools genomecov).
+        Build a genome file (chromosome sizes) for bedtools genomecov.
+
+        Sizes are read from the reference FASTA when given. Without it the
+        size of each reference is the end of its last mapped interval, which
+        hides unmapped tails and references with no hits.
         """
         chrom_sizes = defaultdict(int)
-        for interval in bed:
-            chrom_sizes[interval.chrom] = max(chrom_sizes[interval.chrom], interval.end)
+        if reference_fasta is not None:
+            for record in SeqIO.parse(str(reference_fasta), "fasta"):
+                chrom_sizes[record.id] = len(record.seq)
+        else:
+            logging.warning("No reference FASTA given; reference sizes are taken from the last mapped base")
+            for interval in bed:
+                chrom_sizes[interval.chrom] = max(chrom_sizes[interval.chrom], interval.end)
 
         genome_path = "genome_fill.txt" if temp_dir is None else str(temp_dir / "genome_fill.txt")
         with open(genome_path, "w") as gf:
@@ -147,52 +195,7 @@ class CoverageCalculator:
         Returns dictionary of uncovered intervals, total uncovered bases, and the coverage tool.
         """
         coverage = coverage_bed.genomecov(bga=True, g=genome_file)
-
-        uncovered_regions = defaultdict(list)
-        total_uncovered = 0
-
-        curr_chrom = None
-        curr_start = None
-        prev_end = None
-
-        for interval in coverage:
-            chrom, start, end, cov = interval
-            if chrom == "genome":
-                continue
-            cov = float(cov)
-            start = int(start)
-            end = int(end)
-            length = end - start
-
-            if cov < min_coverage:
-                total_uncovered += length
-                if curr_chrom != chrom:
-                    if curr_chrom is not None and curr_start is not None:
-                        uncovered_regions[curr_chrom].append((curr_start, prev_end))
-                    curr_chrom = chrom
-                    curr_start = start
-                    prev_end = end
-                else:
-                    if curr_start is None:
-                        curr_start = start
-                        prev_end = end
-                    else:
-                        if prev_end == start:
-                            prev_end = end
-                        else:
-                            uncovered_regions[curr_chrom].append((curr_start, prev_end))
-                            curr_start = start
-                            prev_end = end
-            else:
-                if curr_chrom == chrom and curr_start is not None:
-                    uncovered_regions[curr_chrom].append((curr_start, prev_end))
-                curr_chrom = None
-                curr_start = None
-                prev_end = None
-
-        if curr_chrom is not None and curr_start is not None:
-            uncovered_regions[curr_chrom].append((curr_start, prev_end))
-
+        uncovered_regions, total_uncovered = merge_uncovered_intervals(coverage, min_coverage)
         return uncovered_regions, total_uncovered, coverage
 
     @staticmethod
@@ -327,7 +330,8 @@ class CoverageAnalysisOrchestrator:
         psl_path: Path,
         min_length: int,
         min_similarity: float,
-        temp_dir: Optional[Path] = None
+        temp_dir: Optional[Path] = None,
+        reference_fasta: Optional[Path] = None
     ) -> Tuple[Any, Dict[str, List[OligoMapping]], str]:
         """Set up the analysis by parsing PSL and creating necessary files."""
         # Parse PSL to BED
@@ -339,7 +343,7 @@ class CoverageAnalysisOrchestrator:
         mappings_dict = self.mapping_builder.build_mappings(bed)
         
         # Create genome file
-        genome_file = self.genome_handler.create_genome_file(bed, temp_dir)
+        genome_file = self.genome_handler.create_genome_file(bed, temp_dir, reference_fasta)
         
         return bed, mappings_dict, genome_file
     

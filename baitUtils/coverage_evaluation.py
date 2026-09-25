@@ -84,7 +84,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="Path to PSL-like file")
     parser.add_argument("--forced_oligos", type=Path,
                        help="File with oligo IDs that must be included in coverage check")
-    parser.add_argument("--fasta_reference", type=Path,
+    parser.add_argument("--reference", type=Path, required=True,
                        help="Reference FASTA file for exporting uncovered regions")
     
     # Coverage parameters
