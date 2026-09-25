@@ -10,13 +10,14 @@ and provides insights for improving oligo set design.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Any, Optional
 import numpy as np
 import pandas as pd
-from collections import defaultdict, Counter
+from collections import Counter
 from Bio import SeqIO
 from Bio.SeqUtils import gc_fraction
-import re
+
+from baitUtils.coverage_stats import find_gap_intervals
 
 
 class GapAnalyzer:
@@ -27,7 +28,9 @@ class GapAnalyzer:
         coverage_data: Dict[str, Any],
         reference_file: Path,
         min_gap_size: int = 100,
-        extend_bp: int = 0
+        extend_bp: int = 0,
+        coverage_arrays: Optional[Dict[str, np.ndarray]] = None,
+        min_coverage: float = 1.0
     ):
         """
         Initialize the gap analyzer.
@@ -37,11 +40,17 @@ class GapAnalyzer:
             reference_file: Path to reference FASTA file
             min_gap_size: Minimum gap size to analyze
             extend_bp: Extend gaps by N bases on each side for analysis
+            coverage_arrays: Per-reference depth arrays from CoverageAnalyzer.
+                Gap coordinates are taken from these arrays; without them no
+                gaps can be located.
+            min_coverage: Depth below which a position counts as uncovered
         """
         self.coverage_data = coverage_data
         self.reference_file = Path(reference_file)
         self.min_gap_size = min_gap_size
         self.extend_bp = extend_bp
+        self.coverage_arrays = coverage_arrays or {}
+        self.min_coverage = min_coverage
         
         # Data storage
         self.reference_sequences = {}
@@ -93,50 +102,31 @@ class GapAnalyzer:
             raise
     
     def _extract_gaps(self) -> None:
-        """Extract coverage gaps from coverage data."""
-        per_ref_stats = self.coverage_data.get('per_reference', {})
-        
-        # We need to reconstruct gaps from coverage statistics
-        # In practice, this would use the actual coverage arrays
-        # For now, we'll simulate gap detection based on available data
+        """Locate gaps at or above min_gap_size from the per-base coverage arrays."""
+        if not self.coverage_arrays:
+            logging.warning("No coverage arrays supplied; gap coordinates cannot be determined")
+            return
         
         gap_id = 0
-        for ref_id, stats in per_ref_stats.items():
+        for ref_id, cov_array in self.coverage_arrays.items():
             if ref_id not in self.reference_sequences:
                 continue
-            
-            ref_length = stats['length']
-            coverage_breadth = stats['coverage_breadth']
-            gap_count = stats['gaps']
-            
-            # Simulate gap positions for demonstration
-            # In real implementation, this would use actual coverage arrays
-            uncovered_fraction = (100 - coverage_breadth) / 100
-            avg_gap_size = (ref_length * uncovered_fraction) / max(1, gap_count)
-            
-            if avg_gap_size < self.min_gap_size:
-                continue
-            
-            # Generate representative gaps
-            for i in range(min(gap_count, 10)):  # Limit for demonstration
-                # Simulate gap positions
-                gap_start = int(i * ref_length / max(1, gap_count))
-                gap_end = min(gap_start + int(avg_gap_size), ref_length)
-                
-                if gap_end - gap_start >= self.min_gap_size:
-                    gap = {
-                        'id': gap_id,
-                        'chromosome': ref_id,
-                        'start': gap_start,
-                        'end': gap_end,
-                        'length': gap_end - gap_start,
-                        'extended_start': max(0, gap_start - self.extend_bp),
-                        'extended_end': min(ref_length, gap_end + self.extend_bp)
-                    }
-                    self.gaps.append(gap)
-                    gap_id += 1
+            ref_length = len(cov_array)
+            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
+                if gap_end - gap_start < self.min_gap_size:
+                    continue
+                self.gaps.append({
+                    'id': gap_id,
+                    'chromosome': ref_id,
+                    'start': gap_start,
+                    'end': gap_end,
+                    'length': gap_end - gap_start,
+                    'extended_start': max(0, gap_start - self.extend_bp),
+                    'extended_end': min(ref_length, gap_end + self.extend_bp)
+                })
+                gap_id += 1
         
-        logging.info(f"Extracted {len(self.gaps)} gaps ≥ {self.min_gap_size} bp")
+        logging.info(f"Extracted {len(self.gaps)} gaps of at least {self.min_gap_size} bp")
     
     def _analyze_gap_features(self) -> None:
         """Analyze sequence features within gaps."""
@@ -311,6 +301,7 @@ class GapAnalyzer:
                 'max_gap_size': 0,
                 'size_distribution': {},
                 'largest_gaps': [],
+                'gaps': [],
                 'feature_analysis': {}
             }
             return
@@ -327,7 +318,8 @@ class GapAnalyzer:
             'mean_gap_size': np.mean(gap_lengths),
             'median_gap_size': np.median(gap_lengths),
             'max_gap_size': max(gap_lengths),
-            'min_gap_size': min(gap_lengths)
+            'min_gap_size': min(gap_lengths),
+            'gaps': [dict(gap) for gap in self.gaps]
         }
         
         # Gap size distribution

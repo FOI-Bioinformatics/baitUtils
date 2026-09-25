@@ -290,11 +290,18 @@ class TestGapAnalysisWorkflow(unittest.TestCase):
             }
         }
         
+        chr1 = np.ones(660, dtype=np.int32)
+        for start, end in ((100, 200), (300, 400), (500, 560), (600, 660)):
+            chr1[start:end] = 0
+        chr2 = np.ones(800, dtype=np.int32)
+        for start, end in ((100, 160), (700, 800)):
+            chr2[start:end] = 0
         self.analyzer = GapAnalyzer(
             coverage_data=self.coverage_data,
             reference_file=self.ref_file,
             min_gap_size=50,
-            extend_bp=10
+            extend_bp=10,
+            coverage_arrays={'chr1': chr1, 'chr2': chr2}
         )
     
     def tearDown(self):
@@ -506,7 +513,10 @@ class TestEdgeCasesGapAnalysis(unittest.TestCase):
             }
         }
         
-        analyzer = GapAnalyzer(coverage_data, ref_file, min_gap_size=100)
+        coverage = np.zeros(1000, dtype=np.int32)
+        coverage[:50] = 1
+        analyzer = GapAnalyzer(coverage_data, ref_file, min_gap_size=100,
+                               coverage_arrays={'chr1': coverage})
         results = analyzer.analyze()
         
         # Should handle poor coverage

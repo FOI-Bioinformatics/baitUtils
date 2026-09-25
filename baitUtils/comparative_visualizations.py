@@ -15,17 +15,15 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import seaborn as sns
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Optional
 from pathlib import Path
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
-import plotly.figure_factory as ff
 
 from baitUtils.comparative_analyzer import OligoSetResult, ComparativeAnalyzer
-from baitUtils.differential_analysis import DifferentialAnalyzer, CoverageDistributionComparison
+from baitUtils.differential_analysis import DifferentialAnalyzer
 
 
 class ComparativeVisualizer:
@@ -194,7 +192,7 @@ class ComparativeVisualizer:
                 'Coverage_Breadth': result.coverage_stats.get('coverage_breadth', 0),
                 'Mean_Depth': result.coverage_stats.get('mean_depth', 0),
                 'Median_Depth': result.coverage_stats.get('median_depth', 0),
-                'Gini_Coefficient': result.coverage_stats.get('gini_coefficient', 0)
+                'Gini_Coefficient': result.coverage_stats.get('coverage_gini', 0)
             })
         
         df = pd.DataFrame(data)
@@ -235,9 +233,9 @@ class ComparativeVisualizer:
         quality_scores = [result.quality_score.overall_score for result in oligo_sets]
         coverage_breadths = [result.coverage_stats.get('coverage_breadth', 0) for result in oligo_sets]
         
-        scatter = axes[1,1].scatter(coverage_breadths, quality_scores, 
-                                  s=100, alpha=0.7, c=range(len(oligo_sets)), 
-                                  cmap='viridis')
+        axes[1,1].scatter(coverage_breadths, quality_scores,
+                          s=100, alpha=0.7, c=range(len(oligo_sets)),
+                          cmap='viridis')
         axes[1,1].set_xlabel('Coverage Breadth (%)')
         axes[1,1].set_ylabel('Quality Score')
         axes[1,1].set_title('Quality Score vs Coverage Breadth')
@@ -368,101 +366,65 @@ class ComparativeVisualizer:
         if len(oligo_sets) < 2:
             raise ValueError("Need at least 2 oligo sets for statistical comparison")
         
-        # Perform statistical tests
+        alpha = differential_analyzer.significance_level
         quality_tests = differential_analyzer.compare_quality_metrics(oligo_sets)
+        applicable = {m: t for m, t in quality_tests.items() if t.applicable}
         
-        # Create significance plot
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         fig.suptitle('Statistical Comparison Results', fontsize=16, fontweight='bold')
         
-        # P-values plot
-        metrics = list(quality_tests.keys())
-        p_values = [test.p_value for test in quality_tests.values()]
-        effect_sizes = [abs(test.effect_size) for test in quality_tests.values()]
+        def plot_pvalues(ax, names, p_values, title):
+            if not names:
+                ax.text(0.5, 0.5, 'No applicable tests', ha='center', va='center',
+                        transform=ax.transAxes, fontsize=12)
+                ax.set_title(title)
+                return
+            heights = [-np.log10(max(p, 1e-300)) for p in p_values]
+            bars = ax.bar(names, heights)
+            ax.axhline(y=-np.log10(alpha), color='red', linestyle='--', label=f'alpha = {alpha}')
+            for bar, p in zip(bars, p_values):
+                bar.set_color('orange' if p <= alpha else 'gray')
+            ax.set_ylabel('-log10(adjusted p-value)')
+            ax.set_title(title)
+            ax.tick_params(axis='x', rotation=45)
+            ax.legend()
         
-        bars = axes[0,0].bar(metrics, [-np.log10(p) for p in p_values])
-        axes[0,0].axhline(y=-np.log10(0.05), color='red', linestyle='--', 
-                         label='α = 0.05')
-        axes[0,0].axhline(y=-np.log10(0.01), color='orange', linestyle='--', 
-                         label='α = 0.01')
-        axes[0,0].set_ylabel('-log₁₀(p-value)')
-        axes[0,0].set_title('Statistical Significance')
-        axes[0,0].tick_params(axis='x', rotation=45)
-        axes[0,0].legend()
+        plot_pvalues(axes[0, 0], list(applicable), [t.p_reported for t in applicable.values()],
+                     'Per-reference metric tests')
         
-        # Color bars by significance
-        for bar, p_val in zip(bars, p_values):
-            if p_val <= 0.001:
-                bar.set_color('darkgreen')
-            elif p_val <= 0.01:
-                bar.set_color('green')
-            elif p_val <= 0.05:
-                bar.set_color('orange')
-            else:
-                bar.set_color('gray')
+        if applicable:
+            names = list(applicable)
+            effects = [abs(t.effect_size) if np.isfinite(t.effect_size) else 0.0 for t in applicable.values()]
+            axes[0, 1].bar(names, effects, color='steelblue')
+            axes[0, 1].set_ylabel('|effect size|')
+            axes[0, 1].set_title('Effect Sizes')
+            axes[0, 1].tick_params(axis='x', rotation=45)
+        else:
+            axes[0, 1].text(0.5, 0.5, 'No applicable tests', ha='center', va='center',
+                            transform=axes[0, 1].transAxes, fontsize=12)
+            axes[0, 1].set_title('Effect Sizes')
         
-        # Effect sizes plot
-        bars = axes[0,1].bar(metrics, effect_sizes)
-        axes[0,1].set_ylabel('Effect Size (|d|)')
-        axes[0,1].set_title('Effect Sizes')
-        axes[0,1].tick_params(axis='x', rotation=45)
-        
-        # Color bars by effect size magnitude
-        for bar, effect in zip(bars, effect_sizes):
-            if effect >= 0.8:  # Large effect
-                bar.set_color('darkblue')
-            elif effect >= 0.5:  # Medium effect
-                bar.set_color('blue')
-            elif effect >= 0.2:  # Small effect
-                bar.set_color('lightblue')
-            else:  # Negligible effect
-                bar.set_color('gray')
-        
-        # Pairwise comparison (if 2 sets)
         if len(oligo_sets) == 2:
-            # Coverage distribution comparison
             dist_comparison = differential_analyzer.compare_coverage_distributions(
                 oligo_sets[0], oligo_sets[1]
             )
-            
-            # Plot summary statistics
             stats_data = pd.DataFrame(dist_comparison.summary_stats).T
-            stats_data[['mean', 'median']].plot(kind='bar', ax=axes[1,0])
-            axes[1,0].set_title('Coverage Distribution Statistics')
-            axes[1,0].set_ylabel('Coverage Depth')
-            axes[1,0].tick_params(axis='x', rotation=45)
-            axes[1,0].legend()
+            stats_data[['mean', 'median']].plot(kind='bar', ax=axes[1, 0])
+            axes[1, 0].set_title(f'Depth per {dist_comparison.window_size} bp window')
+            axes[1, 0].set_ylabel('Coverage depth')
+            axes[1, 0].tick_params(axis='x', rotation=45)
+            axes[1, 0].legend()
             
-            # Test results summary
-            test_results = [
-                ('KS Test', dist_comparison.ks_test.p_value, dist_comparison.ks_test.effect_size),
-                ('Mann-Whitney', dist_comparison.mann_whitney_test.p_value, 
-                 dist_comparison.mann_whitney_test.effect_size),
-                ('Levene', dist_comparison.levene_test.p_value, 
-                 dist_comparison.levene_test.effect_size)
-            ]
-            
-            test_names, test_p_vals, test_effects = zip(*test_results)
-            
-            x_pos = np.arange(len(test_names))
-            axes[1,1].bar(x_pos, [-np.log10(p) for p in test_p_vals], alpha=0.7)
-            axes[1,1].axhline(y=-np.log10(0.05), color='red', linestyle='--')
-            axes[1,1].set_xticks(x_pos)
-            axes[1,1].set_xticklabels(test_names)
-            axes[1,1].set_ylabel('-log₁₀(p-value)')
-            axes[1,1].set_title('Distribution Tests')
-        
+            dist_tests = [('KS', dist_comparison.ks_test), ('Mann-Whitney', dist_comparison.mann_whitney_test),
+                          ('Levene', dist_comparison.levene_test)]
+            live = [(n, t) for n, t in dist_tests if t.applicable]
+            plot_pvalues(axes[1, 1], [n for n, _ in live], [t.p_reported for _, t in live],
+                         'Distribution tests')
         else:
-            # Multiple sets - show ANOVA results
-            axes[1,0].text(0.5, 0.5, 'ANOVA Results\n(Multiple Groups)', 
-                          ha='center', va='center', transform=axes[1,0].transAxes,
-                          fontsize=14)
-            axes[1,0].set_title('Multiple Group Analysis')
-            
-            axes[1,1].text(0.5, 0.5, 'See Quality Tests\nfor Detailed Results', 
-                          ha='center', va='center', transform=axes[1,1].transAxes,
-                          fontsize=14)
-            axes[1,1].set_title('Statistical Summary')
+            axes[1, 0].text(0.5, 0.5, 'Distribution tests are\nreported for two sets only',
+                            ha='center', va='center', transform=axes[1, 0].transAxes, fontsize=12)
+            axes[1, 0].set_title('Coverage distribution')
+            axes[1, 1].axis('off')
         
         plt.tight_layout()
         

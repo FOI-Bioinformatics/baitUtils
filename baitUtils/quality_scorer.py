@@ -8,9 +8,7 @@ Provides standardized metrics and benchmarking against theoretical optimal cover
 """
 
 import logging
-from typing import Dict, List, Tuple, Any, Optional
-import numpy as np
-import pandas as pd
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -33,15 +31,79 @@ class QualityScore:
     benchmarks: Dict[str, float]
     recommendations: List[str]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a plain dictionary representation for reports and JSON output."""
+        return {
+            'overall_score': self.overall_score,
+            'category': self.category.value,
+            'component_scores': dict(self.component_scores),
+            'weighted_scores': dict(self.weighted_scores),
+            'benchmarks': dict(self.benchmarks),
+            'recommendations': list(self.recommendations),
+        }
+
 
 class QualityScorer:
-    """Comprehensive quality scoring system for coverage evaluation."""
+    """
+    Quality scoring system for coverage evaluation.
+
+    The overall score is a weighted sum of five component scores in 0-1.
+    Weights, targets and category thresholds are stated here so that they can
+    be cited and overridden. They are design conventions for 120 bp
+    hybridization baits at moderate tiling density, not fitted parameters.
+
+    Component            Weight  Rationale
+    -------------------  ------  -----------------------------------------------
+    coverage_breadth     0.30    Fraction of target covered is the primary goal
+    coverage_depth       0.20    Adequate and even depth aids capture efficiency
+    gap_characteristics  0.20    Few, short gaps are easier to close
+    mapping_efficiency   0.15    Oligos that do not map are wasted synthesis
+    reference_difficulty 0.15    Credit for hard references (repeats, extreme GC)
+
+    Target               Value   Meaning
+    -------------------  ------  -----------------------------------------------
+    coverage_breadth     95 %    Breadth at which breadth scores 1.0
+    mean_depth           20 x    Mean depth at which depth adequacy scores 1.0
+    depth_uniformity     0.8     Target uniformity expressed as 1 - Gini
+    mapping_efficiency   90 %    Mapped fraction at which efficiency scores 1.0
+    gap_percentage       2 %     Gap fraction at or below which gaps score 1.0
+    largest_gap          1000 bp Largest gap at or below which it scores 1.0
+
+    Category thresholds on the overall score: Excellent >= 0.85, Good >= 0.70,
+    Fair >= 0.50, otherwise Poor.
+    """
+
+    DEFAULT_WEIGHTS = {
+        'coverage_breadth': 0.30,
+        'coverage_depth': 0.20,
+        'mapping_efficiency': 0.15,
+        'gap_characteristics': 0.20,
+        'reference_difficulty': 0.15,
+    }
+
+    DEFAULT_BENCHMARKS = {
+        'coverage_breadth': 95.0,
+        'mean_depth': 20.0,
+        'depth_uniformity': 0.8,
+        'mapping_efficiency': 90.0,
+        'gap_percentage': 2.0,
+        'largest_gap': 1000,
+    }
+
+    DEFAULT_THRESHOLDS = {
+        'excellent': 0.85,
+        'good': 0.70,
+        'fair': 0.50,
+        'poor': 0.0,
+    }
     
     def __init__(
         self,
         coverage_stats: Dict[str, Any],
         gap_analysis: Dict[str, Any],
-        reference_analysis: Dict[str, Any] = None
+        reference_analysis: Dict[str, Any] = None,
+        weights: Optional[Dict[str, float]] = None,
+        benchmarks: Optional[Dict[str, float]] = None,
     ):
         """
         Initialize the quality scorer.
@@ -50,37 +112,20 @@ class QualityScorer:
             coverage_stats: Coverage statistics from CoverageAnalyzer
             gap_analysis: Gap analysis results from GapAnalyzer
             reference_analysis: Reference sequence analysis (optional)
+            weights: Overrides for DEFAULT_WEIGHTS
+            benchmarks: Overrides for DEFAULT_BENCHMARKS
         """
         self.coverage_stats = coverage_stats
         self.gap_analysis = gap_analysis
         self.reference_analysis = reference_analysis or {}
         
-        # Scoring weights (can be customized)
-        self.weights = {
-            'coverage_breadth': 0.30,      # Most important metric
-            'coverage_depth': 0.20,        # Depth adequacy and uniformity
-            'mapping_efficiency': 0.15,    # Oligo utilization
-            'gap_characteristics': 0.20,   # Gap size and distribution
-            'reference_difficulty': 0.15   # Reference sequence challenges
-        }
-        
-        # Quality thresholds
-        self.thresholds = {
-            'excellent': 0.85,
-            'good': 0.70,
-            'fair': 0.50,
-            'poor': 0.0
-        }
-        
-        # Benchmark values (ideal targets)
-        self.benchmarks = {
-            'coverage_breadth': 95.0,      # 95% coverage
-            'mean_depth': 20.0,            # 20x mean depth
-            'depth_uniformity': 0.8,       # Low CV (high uniformity)
-            'mapping_efficiency': 90.0,    # 90% oligos mapping
-            'gap_percentage': 2.0,         # <2% gaps
-            'largest_gap': 1000            # <1kb largest gap
-        }
+        self.weights = dict(self.DEFAULT_WEIGHTS)
+        if weights:
+            self.weights.update(weights)
+        self.benchmarks = dict(self.DEFAULT_BENCHMARKS)
+        if benchmarks:
+            self.benchmarks.update(benchmarks)
+        self.thresholds = dict(self.DEFAULT_THRESHOLDS)
     
     def calculate_quality_score(self) -> QualityScore:
         """
@@ -147,7 +192,6 @@ class QualityScorer:
         mean_depth = self.coverage_stats.get('mean_depth', 0)
         depth_cv = self.coverage_stats.get('coverage_cv', float('inf'))
         target_depth = self.benchmarks['mean_depth']
-        target_uniformity = self.benchmarks['depth_uniformity']
         
         # Depth adequacy score
         if mean_depth >= target_depth:
@@ -222,7 +266,6 @@ class QualityScorer:
             return 0.7  # Neutral score if no reference analysis
         
         summary = self.reference_analysis.get('analysis_summary', {})
-        challenging_regions = self.reference_analysis.get('challenging_regions', {})
         
         total_sequences = summary.get('total_sequences', 1)
         challenging_count = summary.get('challenging_sequences', 0)
@@ -366,103 +409,3 @@ class QualityScorer:
         
         return benchmarks
     
-    def generate_quality_report(self, quality_score: QualityScore) -> str:
-        """Generate a formatted quality report."""
-        report_lines = []
-        report_lines.append("=== COVERAGE QUALITY ASSESSMENT ===")
-        report_lines.append("")
-        
-        # Overall score
-        report_lines.append(f"Overall Quality Score: {quality_score.overall_score:.3f}")
-        report_lines.append(f"Quality Category: {quality_score.category.value}")
-        report_lines.append("")
-        
-        # Component breakdown
-        report_lines.append("Component Scores:")
-        for component, score in quality_score.component_scores.items():
-            weighted_score = quality_score.weighted_scores[component]
-            weight = self.weights[component]
-            
-            report_lines.append(
-                f"  {component.replace('_', ' ').title()}: "
-                f"{score:.3f} (weighted: {weighted_score:.3f}, weight: {weight:.2f})"
-            )
-        
-        report_lines.append("")
-        
-        # Benchmarks
-        report_lines.append("Performance vs Benchmarks:")
-        for metric, ratio in quality_score.benchmarks.items():
-            status = "✓" if ratio >= 0.8 else "✗" if ratio < 0.5 else "~"
-            report_lines.append(f"  {status} {metric.replace('_', ' ').title()}: {ratio:.2f}x target")
-        
-        report_lines.append("")
-        
-        # Recommendations
-        if quality_score.recommendations:
-            report_lines.append("Recommendations:")
-            for i, rec in enumerate(quality_score.recommendations, 1):
-                report_lines.append(f"  {i}. {rec}")
-        
-        return "\n".join(report_lines)
-    
-    def compare_to_theoretical_optimal(self) -> Dict[str, Any]:
-        """Compare current coverage to theoretical optimal."""
-        # Calculate theoretical optimal based on oligo characteristics
-        total_oligos = self.coverage_stats.get('total_oligos', 0)
-        mapped_oligos = self.coverage_stats.get('mapped_oligos', 0)
-        reference_length = self.coverage_stats.get('reference_length', 1)
-        
-        # Assume average oligo length of 120bp
-        avg_oligo_length = 120
-        total_oligo_bases = mapped_oligos * avg_oligo_length
-        
-        # Theoretical maximum coverage (if perfectly distributed)
-        theoretical_max_coverage = min(100.0, (total_oligo_bases / reference_length) * 100)
-        
-        # Theoretical optimal metrics
-        theoretical_optimal = {
-            'max_possible_breadth': theoretical_max_coverage,
-            'optimal_mean_depth': total_oligo_bases / reference_length,
-            'optimal_uniformity': 0.2,  # CV of 0.2 is very good
-            'optimal_gaps': max(1, int((100 - theoretical_max_coverage) / 100 * reference_length / 1000)),
-            'efficiency_ceiling': 95.0  # Account for mapping challenges
-        }
-        
-        # Current vs theoretical
-        current_performance = {
-            'breadth_efficiency': self.coverage_stats.get('coverage_breadth', 0) / theoretical_max_coverage,
-            'depth_efficiency': min(1.0, self.coverage_stats.get('mean_depth', 0) / theoretical_optimal['optimal_mean_depth']),
-            'uniformity_efficiency': max(0.0, 1.0 - self.coverage_stats.get('coverage_cv', 2.0) / 2.0),
-            'gap_efficiency': max(0.0, 1.0 - self.gap_analysis.get('total_gaps', 1000) / 1000)
-        }
-        
-        return {
-            'theoretical_optimal': theoretical_optimal,
-            'current_performance': current_performance,
-            'overall_efficiency': np.mean(list(current_performance.values())),
-            'improvement_potential': {
-                metric: max(0.0, 1.0 - efficiency) 
-                for metric, efficiency in current_performance.items()
-            }
-        }
-    
-    def export_quality_data(self) -> Dict[str, Any]:
-        """Export comprehensive quality data for analysis."""
-        quality_score = self.calculate_quality_score()
-        theoretical_comparison = self.compare_to_theoretical_optimal()
-        
-        return {
-            'quality_score': {
-                'overall_score': quality_score.overall_score,
-                'category': quality_score.category.value,
-                'component_scores': quality_score.component_scores,
-                'weighted_scores': quality_score.weighted_scores,
-                'benchmarks': quality_score.benchmarks
-            },
-            'theoretical_comparison': theoretical_comparison,
-            'recommendations': quality_score.recommendations,
-            'scoring_weights': self.weights,
-            'quality_thresholds': self.thresholds,
-            'benchmark_targets': self.benchmarks
-        }

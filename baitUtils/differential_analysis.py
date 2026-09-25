@@ -3,453 +3,313 @@
 """
 differential_analysis.py
 
-Statistical differential analysis tools for comparing oligo sets.
-Provides statistical testing, effect size calculations, and significance assessment
-for differences between oligo set performance metrics.
+Statistical comparison of oligo sets evaluated against the same reference.
 
-This module enables rigorous statistical comparison of oligo sets to identify
-statistically significant differences in coverage patterns and quality metrics.
+All tests run on observed data:
+
+- Coverage distributions are compared on mean depth per non-overlapping
+  window (default 1000 bp) taken from the per-base coverage arrays. Windows
+  are used rather than bases because neighbouring bases under one bait are
+  not independent observations.
+- Per-reference metrics (breadth, mean depth, gap count) are compared with
+  paired tests across references (Wilcoxon signed-rank for two sets,
+  Friedman for more). With fewer than two references the test is reported
+  as not applicable rather than given a p-value.
+- Gap sizes are compared with a Mann-Whitney U test.
+
+P-values within each family of tests are adjusted for multiple comparisons
+with the configured method and stored in p_adjusted.
 """
 
-import logging
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Tuple, Optional, NamedTuple
 from dataclasses import dataclass
-import scipy.stats as stats
-from pathlib import Path
+from typing import Dict, List, Optional
 
-from baitUtils.comparative_analyzer import OligoSetResult, ComparisonMetrics
+import numpy as np
+import scipy.stats as stats
+
+from baitUtils.comparative_analyzer import OligoSetResult
 
 
 @dataclass
 class StatisticalTest:
-    """Container for statistical test results."""
+    """Result of one statistical test."""
     test_name: str
     statistic: float
     p_value: float
     effect_size: float
-    significance_level: str  # 'ns', '*', '**', '***'
+    significance_level: str        # '***', '**', '*', 'ns' or 'n/a'
     interpretation: str
+    p_adjusted: Optional[float] = None
+    applicable: bool = True
+    n: int = 0
+
+    @property
+    def p_reported(self) -> float:
+        """Adjusted p-value when available, otherwise the raw p-value."""
+        return self.p_value if self.p_adjusted is None else self.p_adjusted
 
 
 @dataclass
 class CoverageDistributionComparison:
-    """Container for coverage distribution comparison results."""
+    """Comparison of window-level coverage depth between two oligo sets."""
     set1_name: str
     set2_name: str
     ks_test: StatisticalTest
     mann_whitney_test: StatisticalTest
-    levene_test: StatisticalTest  # Test for equal variances
+    levene_test: StatisticalTest
     summary_stats: Dict[str, Dict[str, float]]
+    window_size: int = 1000
+
+
+def _not_applicable(test_name: str, reason: str, n: int = 0) -> StatisticalTest:
+    return StatisticalTest(test_name, float('nan'), float('nan'), float('nan'),
+                           'n/a', f"Not applicable: {reason}", None, False, n)
 
 
 class DifferentialAnalyzer:
-    """
-    Statistical analysis toolkit for comparing oligo set performance.
-    
-    Provides comprehensive statistical testing including:
-    - Coverage distribution comparisons
-    - Gap pattern analysis
-    - Quality metric significance testing
-    - Effect size calculations
-    - Multiple comparison corrections
-    """
-    
-    def __init__(self, significance_level: float = 0.05):
+    """Statistical comparison of oligo set performance."""
+
+    METRIC_LABELS = {
+        'coverage_breadth': 'coverage breadth',
+        'mean_depth': 'mean coverage depth',
+        'gap_count': 'gap count',
+    }
+
+    def __init__(self, significance_level: float = 0.05, correction_method: str = 'fdr',
+                 window_size: int = 1000):
         """
-        Initialize differential analyzer.
-        
         Args:
-            significance_level: Statistical significance threshold
+            significance_level: Alpha used to call a difference significant
+            correction_method: 'bonferroni', 'holm', 'fdr' or 'none'
+            window_size: Window length in bp for coverage distribution tests
         """
+        if correction_method not in ('bonferroni', 'holm', 'fdr', 'none'):
+            raise ValueError(f"Unknown correction method: {correction_method}")
         self.significance_level = significance_level
-        self.alpha_levels = {
-            0.001: '***',
-            0.01: '**', 
-            0.05: '*',
-            1.0: 'ns'
-        }
-    
-    def compare_coverage_distributions(self, set1: OligoSetResult, 
-                                     set2: OligoSetResult) -> CoverageDistributionComparison:
-        """
-        Compare coverage depth distributions between two oligo sets.
-        
-        Args:
-            set1: First oligo set results
-            set2: Second oligo set results
-            
-        Returns:
-            Statistical comparison results
-        """
-        # Extract coverage arrays (mock implementation - would need actual coverage arrays)
-        # In real implementation, this would extract per-position coverage data
-        coverage1 = self._extract_coverage_array(set1)
-        coverage2 = self._extract_coverage_array(set2)
-        
-        # Kolmogorov-Smirnov test (distribution shape)
-        ks_stat, ks_p = stats.kstest(coverage1, coverage2)
-        ks_effect_size = self._calculate_ks_effect_size(ks_stat, len(coverage1), len(coverage2))
-        
-        ks_test = StatisticalTest(
-            test_name="Kolmogorov-Smirnov",
-            statistic=ks_stat,
-            p_value=ks_p,
-            effect_size=ks_effect_size,
-            significance_level=self._get_significance_level(ks_p),
-            interpretation=self._interpret_ks_test(ks_stat, ks_p)
-        )
-        
-        # Mann-Whitney U test (median differences)
-        mw_stat, mw_p = stats.mannwhitneyu(coverage1, coverage2, alternative='two-sided')
-        mw_effect_size = self._calculate_mannwhitney_effect_size(mw_stat, len(coverage1), len(coverage2))
-        
-        mw_test = StatisticalTest(
-            test_name="Mann-Whitney U",
-            statistic=mw_stat,
-            p_value=mw_p,
-            effect_size=mw_effect_size,
-            significance_level=self._get_significance_level(mw_p),
-            interpretation=self._interpret_mannwhitney_test(mw_stat, mw_p)
-        )
-        
-        # Levene's test for equal variances
-        levene_stat, levene_p = stats.levene(coverage1, coverage2)
-        levene_effect_size = self._calculate_levene_effect_size(levene_stat, len(coverage1), len(coverage2))
-        
-        levene_test = StatisticalTest(
-            test_name="Levene's Test",
-            statistic=levene_stat,
-            p_value=levene_p,
-            effect_size=levene_effect_size,
-            significance_level=self._get_significance_level(levene_p),
-            interpretation=self._interpret_levene_test(levene_stat, levene_p)
-        )
-        
-        # Summary statistics
-        summary_stats = {
-            set1.name: {
-                'mean': np.mean(coverage1),
-                'median': np.median(coverage1),
-                'std': np.std(coverage1),
-                'q25': np.percentile(coverage1, 25),
-                'q75': np.percentile(coverage1, 75),
-                'skewness': stats.skew(coverage1),
-                'kurtosis': stats.kurtosis(coverage1)
-            },
-            set2.name: {
-                'mean': np.mean(coverage2),
-                'median': np.median(coverage2), 
-                'std': np.std(coverage2),
-                'q25': np.percentile(coverage2, 25),
-                'q75': np.percentile(coverage2, 75),
-                'skewness': stats.skew(coverage2),
-                'kurtosis': stats.kurtosis(coverage2)
+        self.correction_method = correction_method
+        self.window_size = window_size
+        self.alpha_levels = {0.001: '***', 0.01: '**', 0.05: '*', 1.0: 'ns'}
+
+    # ------------------------------------------------------------------ data
+    def _window_means(self, oligo_set: OligoSetResult) -> np.ndarray:
+        """Mean depth per non-overlapping window over all references."""
+        arrays = oligo_set.coverage_arrays or {}
+        if not arrays:
+            raise ValueError(
+                f"Oligo set '{oligo_set.name}' has no coverage arrays; "
+                "coverage distribution tests need per-base coverage")
+        means = []
+        for arr in arrays.values():
+            arr = np.asarray(arr, dtype=float)
+            n_full = len(arr) // self.window_size
+            if n_full:
+                means.append(arr[:n_full * self.window_size].reshape(n_full, self.window_size).mean(axis=1))
+            if len(arr) % self.window_size:
+                means.append(np.array([arr[n_full * self.window_size:].mean()]))
+        return np.concatenate(means)
+
+    # --------------------------------------------------- coverage distribution
+    def compare_coverage_distributions(self, set1: OligoSetResult,
+                                       set2: OligoSetResult) -> CoverageDistributionComparison:
+        """Compare window-level coverage depth between two oligo sets."""
+        w1 = self._window_means(set1)
+        w2 = self._window_means(set2)
+        n1, n2 = len(w1), len(w2)
+
+        if n1 < 2 or n2 < 2:
+            reason = f"only {min(n1, n2)} window(s) of {self.window_size} bp"
+            ks = _not_applicable("Kolmogorov-Smirnov", reason, n1 + n2)
+            mw = _not_applicable("Mann-Whitney U", reason, n1 + n2)
+            lev = _not_applicable("Levene", reason, n1 + n2)
+        else:
+            ks_stat, ks_p = stats.ks_2samp(w1, w2)
+            ks = StatisticalTest("Kolmogorov-Smirnov", float(ks_stat), float(ks_p), float(ks_stat),
+                                 self._get_significance_level(ks_p),
+                                 self._interpret(ks_p, "window depth distributions", f"D={ks_stat:.3f}"),
+                                 n=n1 + n2)
+
+            mw_stat, mw_p = stats.mannwhitneyu(w1, w2, alternative='two-sided')
+            # Rank-biserial correlation: positive when set1 tends to be larger
+            rank_biserial = 2.0 * float(mw_stat) / (n1 * n2) - 1.0
+            mw = StatisticalTest("Mann-Whitney U", float(mw_stat), float(mw_p), rank_biserial,
+                                 self._get_significance_level(mw_p),
+                                 self._interpret(mw_p, "window depth medians", f"U={mw_stat:.0f}"),
+                                 n=n1 + n2)
+
+            if np.allclose(w1, w1[0]) and np.allclose(w2, w2[0]):
+                lev = _not_applicable("Levene", "no variance in either set", n1 + n2)
+            else:
+                lev_stat, lev_p = stats.levene(w1, w2)
+                var_ratio = (np.var(w1, ddof=1) / np.var(w2, ddof=1)) if np.var(w2, ddof=1) > 0 else float('inf')
+                lev = StatisticalTest("Levene", float(lev_stat), float(lev_p), float(var_ratio),
+                                      self._get_significance_level(lev_p),
+                                      self._interpret(lev_p, "window depth variability", f"W={lev_stat:.3f}"),
+                                      n=n1 + n2)
+
+        self._adjust([ks, mw, lev])
+
+        def summary(w: np.ndarray) -> Dict[str, float]:
+            return {
+                'mean': float(np.mean(w)), 'median': float(np.median(w)), 'std': float(np.std(w, ddof=1)) if len(w) > 1 else 0.0,
+                'q25': float(np.percentile(w, 25)), 'q75': float(np.percentile(w, 75)),
+                'windows': int(len(w)),
             }
-        }
-        
+
         return CoverageDistributionComparison(
-            set1_name=set1.name,
-            set2_name=set2.name,
-            ks_test=ks_test,
-            mann_whitney_test=mw_test,
-            levene_test=levene_test,
-            summary_stats=summary_stats
-        )
-    
-    def _extract_coverage_array(self, oligo_set: OligoSetResult) -> np.ndarray:
-        """Extract coverage depth array from oligo set results."""
-        # Mock implementation - in reality would extract per-position coverage
-        # For now, simulate based on coverage statistics
-        
-        mean_depth = oligo_set.coverage_stats.get('mean_depth', 5.0)
-        coverage_breadth = oligo_set.coverage_stats.get('coverage_breadth', 80.0)
-        gini_coeff = oligo_set.coverage_stats.get('gini_coefficient', 0.3)
-        
-        # Simulate coverage array based on statistics
-        ref_length = oligo_set.coverage_stats.get('reference_length', 10000)
-        covered_positions = int(ref_length * coverage_breadth / 100)
-        
-        # Generate coverage values with appropriate distribution
-        # Use gamma distribution to simulate realistic coverage
-        if gini_coeff < 0.2:  # Uniform coverage
-            coverage = np.random.gamma(shape=mean_depth**2, scale=1/mean_depth, size=covered_positions)
-        elif gini_coeff > 0.5:  # Variable coverage
-            coverage = np.random.gamma(shape=1, scale=mean_depth, size=covered_positions)
-        else:  # Moderate variability
-            coverage = np.random.gamma(shape=mean_depth, scale=1, size=covered_positions)
-        
-        # Add zeros for uncovered positions
-        zeros = np.zeros(ref_length - covered_positions)
-        full_coverage = np.concatenate([coverage, zeros])
-        np.random.shuffle(full_coverage)
-        
-        return full_coverage
-    
+            set1_name=set1.name, set2_name=set2.name, ks_test=ks, mann_whitney_test=mw,
+            levene_test=lev, summary_stats={set1.name: summary(w1), set2.name: summary(w2)},
+            window_size=self.window_size)
+
+    # ------------------------------------------------------ per-reference tests
     def compare_quality_metrics(self, oligo_sets: List[OligoSetResult]) -> Dict[str, StatisticalTest]:
         """
-        Compare quality metrics across multiple oligo sets.
-        
-        Args:
-            oligo_sets: List of oligo set results to compare
-            
-        Returns:
-            Dictionary of statistical tests for each metric
+        Paired comparison of per-reference metrics across oligo sets.
+
+        Each reference sequence is one paired observation. Two sets are
+        compared with the Wilcoxon signed-rank test, more with the Friedman
+        test. Metrics with fewer than two references, or with no difference
+        between sets, are reported as not applicable.
         """
         if len(oligo_sets) < 2:
             raise ValueError("Need at least 2 oligo sets for comparison")
-        
-        results = {}
-        
-        # Extract metrics for comparison
-        metrics = {
-            'quality_score': [s.quality_score.overall_score for s in oligo_sets],
-            'coverage_breadth': [s.coverage_stats.get('coverage_breadth', 0) for s in oligo_sets],
-            'mean_depth': [s.coverage_stats.get('mean_depth', 0) for s in oligo_sets],
-            'mapping_efficiency': [s.coverage_stats.get('mapping_efficiency', 0) for s in oligo_sets],
-            'gap_count': [s.gap_analysis.get('total_gaps', 0) for s in oligo_sets],
-            'gini_coefficient': [s.coverage_stats.get('gini_coefficient', 0) for s in oligo_sets]
-        }
-        
-        for metric_name, values in metrics.items():
+
+        per_ref = [s.coverage_stats.get('per_reference', {}) for s in oligo_sets]
+        refs = sorted(set.intersection(*(set(p) for p in per_ref))) if per_ref else []
+        source_keys = {'coverage_breadth': 'coverage_breadth', 'mean_depth': 'mean_depth', 'gap_count': 'gaps'}
+
+        results: Dict[str, StatisticalTest] = {}
+        for metric, key in source_keys.items():
+            label = self.METRIC_LABELS[metric]
+            if len(refs) < 2:
+                results[metric] = _not_applicable(
+                    "Wilcoxon signed-rank" if len(oligo_sets) == 2 else "Friedman",
+                    f"{len(refs)} shared reference(s); paired tests need at least 2", len(refs))
+                continue
+
+            matrix = np.array([[float(p[r].get(key, 0.0)) for r in refs] for p in per_ref])
             if len(oligo_sets) == 2:
-                # Use t-test for two groups
-                stat, p_value = stats.ttest_ind(values[:1], values[1:])
-                effect_size = self._calculate_cohens_d(values[:1], values[1:])
-                test_name = "Independent t-test"
+                diff = matrix[0] - matrix[1]
+                if np.all(diff == 0):
+                    results[metric] = _not_applicable("Wilcoxon signed-rank",
+                                                      f"identical {label} on every reference", len(refs))
+                    continue
+                stat, p = stats.wilcoxon(matrix[0], matrix[1])
+                sd = np.std(diff, ddof=1)
+                effect = float(np.mean(diff) / sd) if sd > 0 else float('inf')
+                results[metric] = StatisticalTest(
+                    "Wilcoxon signed-rank", float(stat), float(p), effect,
+                    self._get_significance_level(p),
+                    self._interpret(p, label, f"W={stat:.1f}, n={len(refs)}"), n=len(refs))
             else:
-                # Use ANOVA for multiple groups
-                groups = [[v] for v in values]  # Each oligo set as a group
-                stat, p_value = stats.f_oneway(*groups)
-                effect_size = self._calculate_eta_squared(groups)
-                test_name = "One-way ANOVA"
-            
-            results[metric_name] = StatisticalTest(
-                test_name=test_name,
-                statistic=stat,
-                p_value=p_value,
-                effect_size=effect_size,
-                significance_level=self._get_significance_level(p_value),
-                interpretation=self._interpret_metric_test(metric_name, stat, p_value)
-            )
-        
+                if np.all(matrix == matrix[0]):
+                    results[metric] = _not_applicable("Friedman", f"identical {label} on every reference", len(refs))
+                    continue
+                stat, p = stats.friedmanchisquare(*matrix)
+                k, n = matrix.shape
+                kendall_w = float(stat / (n * (k - 1))) if n * (k - 1) > 0 else float('nan')
+                results[metric] = StatisticalTest(
+                    "Friedman", float(stat), float(p), kendall_w,
+                    self._get_significance_level(p),
+                    self._interpret(p, label, f"chi2={stat:.2f}, n={n}"), n=n)
+
+        self._adjust(list(results.values()))
         return results
-    
+
+    # -------------------------------------------------------------- gap sizes
     def analyze_gap_patterns(self, set1: OligoSetResult, set2: OligoSetResult) -> Dict[str, StatisticalTest]:
+        """Compare gap size distributions between two oligo sets."""
+        sizes1 = [g['length'] for g in set1.gap_analysis.get('gaps', [])]
+        sizes2 = [g['length'] for g in set2.gap_analysis.get('gaps', [])]
+        if len(sizes1) < 2 or len(sizes2) < 2:
+            return {'gap_size_distribution': _not_applicable(
+                "Mann-Whitney U (gap sizes)", "fewer than two gaps in a set", len(sizes1) + len(sizes2))}
+        stat, p = stats.mannwhitneyu(sizes1, sizes2, alternative='two-sided')
+        effect = 2.0 * float(stat) / (len(sizes1) * len(sizes2)) - 1.0
+        result = StatisticalTest("Mann-Whitney U (gap sizes)", float(stat), float(p), effect,
+                                 self._get_significance_level(p),
+                                 self._interpret(p, "gap size distributions", f"U={stat:.0f}"),
+                                 n=len(sizes1) + len(sizes2))
+        self._adjust([result])
+        return {'gap_size_distribution': result}
+
+    # ------------------------------------------------------- per-oligo identity
+    def compare_oligo_identity(self, set1: OligoSetResult, set2: OligoSetResult) -> StatisticalTest:
         """
-        Analyze differences in gap patterns between two oligo sets.
-        
-        Args:
-            set1: First oligo set results
-            set2: Second oligo set results
-            
-        Returns:
-            Statistical tests for gap pattern differences
+        Mann-Whitney U test on best-hit identity per mapped bait. Baits are
+        independent observations, so this is the most direct comparison of
+        design quality between two sets.
         """
-        results = {}
-        
-        # Extract gap size distributions
-        gaps1 = set1.gap_analysis.get('gaps', [])
-        gaps2 = set2.gap_analysis.get('gaps', [])
-        
-        if not gaps1 or not gaps2:
-            logging.warning("Insufficient gap data for statistical comparison")
-            return results
-        
-        gap_sizes1 = [gap['length'] for gap in gaps1]
-        gap_sizes2 = [gap['length'] for gap in gaps2]
-        
-        # Mann-Whitney test for gap size distributions
-        if len(gap_sizes1) > 0 and len(gap_sizes2) > 0:
-            mw_stat, mw_p = stats.mannwhitneyu(gap_sizes1, gap_sizes2, alternative='two-sided')
-            mw_effect_size = self._calculate_mannwhitney_effect_size(mw_stat, len(gap_sizes1), len(gap_sizes2))
-            
-            results['gap_size_distribution'] = StatisticalTest(
-                test_name="Mann-Whitney U (Gap Sizes)",
-                statistic=mw_stat,
-                p_value=mw_p,
-                effect_size=mw_effect_size,
-                significance_level=self._get_significance_level(mw_p),
-                interpretation=self._interpret_gap_size_test(mw_stat, mw_p)
-            )
-        
-        # Chi-square test for gap count differences
-        gap_counts = [len(gaps1), len(gaps2)]
-        total_gaps = sum(gap_counts)
-        expected = [total_gaps / 2, total_gaps / 2]
-        
-        if total_gaps > 0:
-            chi2_stat, chi2_p = stats.chisquare(gap_counts, expected)
-            chi2_effect_size = np.sqrt(chi2_stat / total_gaps)
-            
-            results['gap_count_difference'] = StatisticalTest(
-                test_name="Chi-square (Gap Count)",
-                statistic=chi2_stat,
-                p_value=chi2_p,
-                effect_size=chi2_effect_size,
-                significance_level=self._get_significance_level(chi2_p),
-                interpretation=self._interpret_gap_count_test(chi2_stat, chi2_p)
-            )
-        
-        return results
-    
-    def multiple_comparison_correction(self, p_values: List[float], 
-                                     method: str = 'bonferroni') -> List[float]:
-        """
-        Apply multiple comparison correction to p-values.
-        
-        Args:
-            p_values: List of uncorrected p-values
-            method: Correction method ('bonferroni', 'holm', 'fdr')
-            
-        Returns:
-            Corrected p-values
-        """
-        p_array = np.array(p_values)
-        
+        def identities(oligo_set):
+            table = oligo_set.per_oligo
+            if table is None or len(table) == 0:
+                return np.array([])
+            return table['best_identity'].to_numpy(dtype=float)
+
+        a, b = identities(set1), identities(set2)
+        if len(a) < 2 or len(b) < 2:
+            return _not_applicable("Mann-Whitney U (bait identity)", "fewer than two mapped baits in a set",
+                                   len(a) + len(b))
+        if np.allclose(a, a[0]) and np.allclose(b, b[0]) and np.isclose(a[0], b[0]):
+            return _not_applicable("Mann-Whitney U (bait identity)", "identical identity for every bait",
+                                   len(a) + len(b))
+        stat, p = stats.mannwhitneyu(a, b, alternative='two-sided')
+        effect = 2.0 * float(stat) / (len(a) * len(b)) - 1.0
+        result = StatisticalTest("Mann-Whitney U (bait identity)", float(stat), float(p), effect,
+                                 self._get_significance_level(p),
+                                 self._interpret(p, "best-hit identity per bait", f"U={stat:.0f}"),
+                                 n=len(a) + len(b))
+        self._adjust([result])
+        return result
+
+    # ----------------------------------------------------- multiple comparison
+    def multiple_comparison_correction(self, p_values: List[float], method: Optional[str] = None) -> List[float]:
+        """Adjust p-values with 'bonferroni', 'holm', 'fdr' (Benjamini-Hochberg) or 'none'."""
+        method = method or self.correction_method
+        p = np.asarray(p_values, dtype=float)
+        if p.size == 0:
+            return []
+        if method == 'none':
+            return p.tolist()
         if method == 'bonferroni':
-            corrected = p_array * len(p_values)
-            corrected = np.minimum(corrected, 1.0)
-        elif method == 'holm':
-            corrected = self._holm_correction(p_array)
-        elif method == 'fdr':
-            corrected = self._fdr_correction(p_array)
-        else:
-            raise ValueError(f"Unknown correction method: {method}")
-        
-        return corrected.tolist()
-    
-    def _holm_correction(self, p_values: np.ndarray) -> np.ndarray:
-        """Apply Holm-Bonferroni correction."""
-        sorted_indices = np.argsort(p_values)
-        sorted_p = p_values[sorted_indices]
-        n = len(p_values)
-        
-        corrected = np.zeros_like(sorted_p)
-        for i, p in enumerate(sorted_p):
-            corrected[i] = min(1.0, p * (n - i))
-        
-        # Ensure monotonicity
-        for i in range(1, len(corrected)):
-            corrected[i] = max(corrected[i], corrected[i-1])
-        
-        # Restore original order
-        result = np.zeros_like(corrected)
-        result[sorted_indices] = corrected
-        return result
-    
-    def _fdr_correction(self, p_values: np.ndarray) -> np.ndarray:
-        """Apply False Discovery Rate (Benjamini-Hochberg) correction."""
-        sorted_indices = np.argsort(p_values)
-        sorted_p = p_values[sorted_indices]
-        n = len(p_values)
-        
-        corrected = np.zeros_like(sorted_p)
-        for i in range(n-1, -1, -1):
-            if i == n-1:
-                corrected[i] = sorted_p[i]
-            else:
-                corrected[i] = min(corrected[i+1], sorted_p[i] * n / (i+1))
-        
-        # Restore original order
-        result = np.zeros_like(corrected)
-        result[sorted_indices] = corrected
-        return result
-    
-    # Effect size calculation methods
-    def _calculate_cohens_d(self, group1: List[float], group2: List[float]) -> float:
-        """Calculate Cohen's d effect size."""
-        mean1, mean2 = np.mean(group1), np.mean(group2)
-        pooled_std = np.sqrt(((len(group1) - 1) * np.var(group1, ddof=1) + 
-                             (len(group2) - 1) * np.var(group2, ddof=1)) / 
-                            (len(group1) + len(group2) - 2))
-        return (mean1 - mean2) / pooled_std if pooled_std > 0 else 0
-    
-    def _calculate_eta_squared(self, groups: List[List[float]]) -> float:
-        """Calculate eta-squared effect size for ANOVA."""
-        # Simplified implementation
-        all_values = [val for group in groups for val in group]
-        grand_mean = np.mean(all_values)
-        
-        ss_between = sum(len(group) * (np.mean(group) - grand_mean)**2 for group in groups)
-        ss_total = sum((val - grand_mean)**2 for val in all_values)
-        
-        return ss_between / ss_total if ss_total > 0 else 0
-    
-    def _calculate_ks_effect_size(self, ks_stat: float, n1: int, n2: int) -> float:
-        """Calculate effect size for KS test."""
-        return ks_stat  # KS statistic itself is a measure of effect size
-    
-    def _calculate_mannwhitney_effect_size(self, mw_stat: float, n1: int, n2: int) -> float:
-        """Calculate effect size for Mann-Whitney test."""
-        return (mw_stat / (n1 * n2)) - 0.5  # r = (U / (n1 * n2)) - 0.5
-    
-    def _calculate_levene_effect_size(self, levene_stat: float, n1: int, n2: int) -> float:
-        """Calculate effect size for Levene's test."""
-        # Use eta-squared approximation
-        df_between = 1
-        df_total = n1 + n2 - 1
-        return (levene_stat * df_between) / (levene_stat * df_between + df_total)
-    
-    # Significance level determination
+            return np.minimum(p * p.size, 1.0).tolist()
+        if method == 'holm':
+            order = np.argsort(p)
+            adjusted = np.empty_like(p)
+            running = 0.0
+            for rank, idx in enumerate(order):
+                running = max(running, min(1.0, p[idx] * (p.size - rank)))
+                adjusted[idx] = running
+            return adjusted.tolist()
+        if method == 'fdr':
+            order = np.argsort(p)
+            adjusted = np.empty_like(p)
+            running = 1.0
+            for rank in range(p.size - 1, -1, -1):
+                idx = order[rank]
+                running = min(running, p[idx] * p.size / (rank + 1))
+                adjusted[idx] = min(1.0, running)
+            return adjusted.tolist()
+        raise ValueError(f"Unknown correction method: {method}")
+
+    def _adjust(self, tests: List[StatisticalTest]) -> None:
+        """Fill p_adjusted for the applicable tests in one family."""
+        live = [t for t in tests if t.applicable]
+        if not live:
+            return
+        for test, p_adj in zip(live, self.multiple_comparison_correction([t.p_value for t in live])):
+            test.p_adjusted = p_adj
+            test.significance_level = self._get_significance_level(p_adj)
+
+    # ----------------------------------------------------------------- helpers
     def _get_significance_level(self, p_value: float) -> str:
-        """Determine significance level based on p-value."""
-        for threshold, level in self.alpha_levels.items():
+        if p_value is None or np.isnan(p_value):
+            return 'n/a'
+        for threshold, level in sorted(self.alpha_levels.items()):
             if p_value <= threshold:
                 return level
         return 'ns'
-    
-    # Interpretation methods
-    def _interpret_ks_test(self, statistic: float, p_value: float) -> str:
-        """Interpret KS test results."""
+
+    def _interpret(self, p_value: float, what: str, detail: str) -> str:
         if p_value <= self.significance_level:
-            return f"Significant difference in coverage distributions (D={statistic:.3f})"
-        else:
-            return f"No significant difference in coverage distributions (D={statistic:.3f})"
-    
-    def _interpret_mannwhitney_test(self, statistic: float, p_value: float) -> str:
-        """Interpret Mann-Whitney test results."""
-        if p_value <= self.significance_level:
-            return f"Significant difference in coverage medians (U={statistic:.0f})"
-        else:
-            return f"No significant difference in coverage medians (U={statistic:.0f})"
-    
-    def _interpret_levene_test(self, statistic: float, p_value: float) -> str:
-        """Interpret Levene's test results."""
-        if p_value <= self.significance_level:
-            return f"Significant difference in coverage variability (W={statistic:.3f})"
-        else:
-            return f"No significant difference in coverage variability (W={statistic:.3f})"
-    
-    def _interpret_metric_test(self, metric: str, statistic: float, p_value: float) -> str:
-        """Interpret metric comparison test results."""
-        metric_names = {
-            'quality_score': 'quality scores',
-            'coverage_breadth': 'coverage breadth',
-            'mean_depth': 'mean coverage depth',
-            'mapping_efficiency': 'mapping efficiency',
-            'gap_count': 'gap counts',
-            'gini_coefficient': 'coverage uniformity'
-        }
-        
-        metric_name = metric_names.get(metric, metric)
-        
-        if p_value <= self.significance_level:
-            return f"Significant difference in {metric_name} (stat={statistic:.3f})"
-        else:
-            return f"No significant difference in {metric_name} (stat={statistic:.3f})"
-    
-    def _interpret_gap_size_test(self, statistic: float, p_value: float) -> str:
-        """Interpret gap size distribution test results."""
-        if p_value <= self.significance_level:
-            return f"Significant difference in gap size distributions (U={statistic:.0f})"
-        else:
-            return f"No significant difference in gap size distributions (U={statistic:.0f})"
-    
-    def _interpret_gap_count_test(self, statistic: float, p_value: float) -> str:
-        """Interpret gap count test results."""
-        if p_value <= self.significance_level:
-            return f"Significant difference in gap counts (χ²={statistic:.3f})"
-        else:
-            return f"No significant difference in gap counts (χ²={statistic:.3f})"
+            return f"Difference in {what} at alpha {self.significance_level} ({detail})"
+        return f"No difference in {what} at alpha {self.significance_level} ({detail})"

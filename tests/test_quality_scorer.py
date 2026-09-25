@@ -59,7 +59,7 @@ class TestQualityScorer(unittest.TestCase):
         self.coverage_stats = {
             'coverage_breadth': 82.5,
             'mean_depth': 9.7,
-            'gini_coefficient': 0.28,
+            'coverage_gini': 0.28,
             'mapping_efficiency': 91.2,
             'reference_length': 15000,
             'covered_bases': 12375,
@@ -161,7 +161,7 @@ class TestQualityScorer(unittest.TestCase):
         
         # Check that lower Gini coefficient gives higher score
         uniform_stats = self.coverage_stats.copy()
-        uniform_stats['gini_coefficient'] = 0.05  # Much more uniform
+        uniform_stats['coverage_gini'] = 0.05  # Much more uniform
         uniform_scorer = QualityScorer(uniform_stats, self.gap_analysis, self.reference_analysis)
         uniform_score = uniform_scorer._score_coverage_depth()
         
@@ -169,7 +169,7 @@ class TestQualityScorer(unittest.TestCase):
         
         # Test edge cases
         variable_stats = self.coverage_stats.copy()
-        variable_stats['gini_coefficient'] = 0.8  # Highly variable
+        variable_stats['coverage_gini'] = 0.8  # Highly variable
         variable_scorer = QualityScorer(variable_stats, self.gap_analysis, self.reference_analysis)
         variable_score = variable_scorer._score_coverage_depth()
         
@@ -290,7 +290,7 @@ class TestQualityScorer(unittest.TestCase):
         zero_stats = {
             'coverage_breadth': 0.0,
             'mean_depth': 0.0,
-            'gini_coefficient': 1.0,
+            'coverage_gini': 1.0,
             'mapping_efficiency': 0.0,
             'reference_length': 15000,
             'covered_bases': 0
@@ -315,7 +315,7 @@ class TestQualityScorer(unittest.TestCase):
         perfect_stats = {
             'coverage_breadth': 100.0,
             'mean_depth': 20.0,
-            'gini_coefficient': 0.0,
+            'coverage_gini': 0.0,
             'mapping_efficiency': 100.0,
             'reference_length': 15000,
             'covered_bases': 15000

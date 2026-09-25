@@ -11,15 +11,14 @@ allowing users to evaluate multiple oligo set designs and identify the best perf
 """
 
 import logging
-import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, NamedTuple
+from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 from dataclasses import dataclass
 import tempfile
-import shutil
 
 from baitUtils.coverage_stats import CoverageAnalyzer
+from baitUtils.mapping_utils import run_pblat
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer, QualityScore
@@ -35,6 +34,8 @@ class OligoSetResult:
     gap_analysis: Dict
     quality_score: QualityScore
     benchmark_results: Optional[Dict] = None
+    coverage_arrays: Optional[Dict] = None
+    per_oligo: Optional[pd.DataFrame] = None
 
 
 @dataclass
@@ -58,7 +59,8 @@ class ComparativeAnalyzer:
     
     def __init__(self, reference_file: str, output_dir: Path, 
                  min_identity: float = 90.0, min_length: int = 100,
-                 min_coverage: float = 1.0, target_coverage: float = 10.0):
+                 min_coverage: float = 1.0, target_coverage: float = 10.0,
+                 threads: int = 1):
         """
         Initialize comparative analyzer.
         
@@ -76,6 +78,7 @@ class ComparativeAnalyzer:
         self.min_length = min_length
         self.min_coverage = min_coverage
         self.target_coverage = target_coverage
+        self.threads = threads
         
         self.oligo_sets: List[OligoSetResult] = []
         self.reference_analysis: Optional[Dict] = None
@@ -111,25 +114,9 @@ class ComparativeAnalyzer:
     
     def _perform_mapping(self, oligo_file: str, temp_dir: Path) -> str:
         """Perform oligo mapping using pblat."""
-        import subprocess
-        
         psl_file = temp_dir / "mapping.psl"
-        
-        cmd = [
-            'pblat',
-            f'-minIdentity={self.min_identity}',
-            f'-minScore=30',
-            f'-minMatch=2',
-            self.reference_file,
-            oligo_file,
-            str(psl_file)
-        ]
-        
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"pblat mapping failed: {e}")
-        
+        run_pblat(self.reference_file, oligo_file, str(psl_file), threads=self.threads,
+                  min_identity=self.min_identity)
         return str(psl_file)
     
     def _analyze_oligo_set(self, name: str, oligo_file: str, psl_file: str) -> OligoSetResult:
@@ -142,29 +129,35 @@ class ComparativeAnalyzer:
             min_coverage=self.min_coverage,
             target_coverage=self.target_coverage,
             min_identity=self.min_identity,
-            min_length=self.min_length
+            min_length=self.min_length,
+            oligos_file=oligo_file
         )
         coverage_stats = coverage_analyzer.analyze()
         
         # Gap analysis
         gap_analyzer = GapAnalyzer(
             coverage_data=coverage_stats,
-            reference_file=self.reference_file
+            reference_file=self.reference_file,
+            coverage_arrays=coverage_analyzer.coverage_arrays,
+            min_coverage=self.min_coverage
         )
         gap_analysis = gap_analyzer.analyze()
         
         # Reference analysis (shared across all oligo sets)
         if self.reference_analysis is None:
-            ref_analyzer = ReferenceAnalyzer(self.reference_file)
+            ref_analyzer = ReferenceAnalyzer(
+                reference_file=self.reference_file,
+                coverage_data=coverage_stats
+            )
             self.reference_analysis = ref_analyzer.analyze()
-        
+
         # Quality scoring
         quality_scorer = QualityScorer(
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
             reference_analysis=self.reference_analysis
         )
-        quality_score = quality_scorer.calculate_score()
+        quality_score = quality_scorer.calculate_quality_score()
         
         # Benchmarking
         benchmark_analyzer = BenchmarkAnalyzer(
@@ -181,7 +174,9 @@ class ComparativeAnalyzer:
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
             quality_score=quality_score,
-            benchmark_results=benchmark_results
+            benchmark_results=benchmark_results,
+            coverage_arrays=coverage_analyzer.coverage_arrays,
+            per_oligo=coverage_analyzer.hit_table
         )
     
     def generate_comparison_matrix(self) -> pd.DataFrame:
@@ -199,7 +194,7 @@ class ComparativeAnalyzer:
                 'Total_Gaps': result.gap_analysis.get('total_gaps', 0),
                 'Largest_Gap_bp': result.gap_analysis.get('max_gap_size', 0),
                 'Mapping_Efficiency_%': result.coverage_stats.get('mapping_efficiency', 0),
-                'Gini_Coefficient': result.coverage_stats.get('gini_coefficient', 0),
+                'Gini_Coefficient': result.coverage_stats.get('coverage_gini', 0),
                 'Quality_Score': result.quality_score.overall_score,
                 'Quality_Grade': result.quality_score.category.value,
                 'Total_Oligos': result.coverage_stats.get('total_oligos', 0),
@@ -211,7 +206,6 @@ class ComparativeAnalyzer:
                 row['Coverage_Efficiency_%'] = result.benchmark_results['coverage_breadth'].efficiency_ratio * 100
                 row['Depth_Efficiency_%'] = result.benchmark_results['depth_uniformity'].efficiency_ratio * 100
                 row['Gap_Efficiency_%'] = result.benchmark_results['gap_reduction'].efficiency_ratio * 100
-                row['Overall_Efficiency_%'] = result.benchmark_results['overall_quality'].efficiency_ratio * 100
             
             data.append(row)
         
@@ -236,8 +230,8 @@ class ComparativeAnalyzer:
                 quality_diff = set1.quality_score.overall_score - set2.quality_score.overall_score
                 mapping_diff = (set1.coverage_stats.get('mapping_efficiency', 0) - 
                               set2.coverage_stats.get('mapping_efficiency', 0))
-                uniformity_diff = (set1.coverage_stats.get('gini_coefficient', 0) - 
-                                 set2.coverage_stats.get('gini_coefficient', 0))
+                uniformity_diff = (set1.coverage_stats.get('coverage_gini', 0) - 
+                                 set2.coverage_stats.get('coverage_gini', 0))
                 
                 comparison = ComparisonMetrics(
                     coverage_breadth_diff=coverage_diff,
@@ -272,7 +266,7 @@ class ComparativeAnalyzer:
         elif metric == 'mapping_efficiency':
             return max(self.oligo_sets, key=lambda x: x.coverage_stats.get('mapping_efficiency', 0))
         elif metric == 'depth_uniformity':
-            return min(self.oligo_sets, key=lambda x: x.coverage_stats.get('gini_coefficient', 1.0))
+            return min(self.oligo_sets, key=lambda x: x.coverage_stats.get('coverage_gini', 1.0))
         else:
             raise ValueError(f"Unknown metric: {metric}")
     

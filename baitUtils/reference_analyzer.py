@@ -10,15 +10,12 @@ and correlate with coverage performance.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any
 import numpy as np
-import pandas as pd
-from collections import defaultdict, Counter
-import re
+from collections import Counter
 
 from Bio import SeqIO
 from Bio.SeqUtils import gc_fraction
-from Bio.SeqUtils.ProtParam import ProteinAnalysis
 
 
 class ReferenceAnalyzer:
@@ -327,7 +324,6 @@ class ReferenceAnalyzer:
         
         # Coverage quality metrics
         coverage_breadth = coverage_stats.get('coverage_breadth', 0)
-        mean_depth = coverage_stats.get('mean_depth', 0)
         gap_count = coverage_stats.get('gaps', 0)
         
         # Correlate with sequence features

@@ -13,11 +13,11 @@ import multiprocessing
 import os
 import gzip
 from pathlib import Path
-from typing import List, Dict, Any, Optional, IO, TextIO
+from typing import List, Dict, Any, Optional
 from Bio import SeqIO
 
 from baitUtils._version import __version__
-from baitUtils.sequence_analysis import SequenceAnalyzer, clean_sequence
+from baitUtils.sequence_analysis import SequenceAnalyzer
 
 
 class SequenceFilter:
@@ -26,7 +26,8 @@ class SequenceFilter:
     def __init__(self, length: int = 120, complete: bool = False, no_ns: bool = False,
                  min_gc: Optional[float] = None, max_gc: Optional[float] = None,
                  min_tm: Optional[float] = None, max_tm: Optional[float] = None,
-                 max_mask: Optional[float] = None):
+                 max_mask: Optional[float] = None,
+                 min_hairpin_dg: Optional[float] = None, min_dimer_dg: Optional[float] = None):
         """
         Initialize sequence filter with criteria.
         
@@ -48,8 +49,8 @@ class SequenceFilter:
         self.min_tm = min_tm
         self.max_tm = max_tm
         self.max_mask = max_mask
-        
-        self.analyzer = SequenceAnalyzer()
+        self.min_hairpin_dg = min_hairpin_dg
+        self.min_dimer_dg = min_dimer_dg
     
     def passes_filters(self, sequence: str, stats: Dict[str, Any]) -> bool:
         """
@@ -88,21 +89,37 @@ class SequenceFilter:
         if self.max_mask is not None and stats['masked_percentage'] > self.max_mask:
             return False
         
+        # Secondary structure filters: reject sequences with dG below the threshold
+        for key, threshold in (('hairpin_dg', self.min_hairpin_dg), ('self_dimer_dg', self.min_dimer_dg)):
+            value = stats.get(key, 'NA')
+            if threshold is not None and value != 'NA' and value < threshold:
+                return False
+        
         return True
 
 
 class SequenceStatsCalculator:
     """Main class for calculating sequence statistics."""
     
-    def __init__(self, num_processes: int = 1):
+    def __init__(self, num_processes: int = 1, na: float = 50.0, dnac1: float = 250.0,
+                 dnac2: float = 250.0, hybridization_temp: float = 65.0):
         """
         Initialize statistics calculator.
         
         Args:
             num_processes: Number of processes for parallel processing
+            na: Monovalent salt concentration for Tm (mM)
+            dnac1: Concentration of the more abundant strand (nM)
+            dnac2: Concentration of the less abundant strand (nM)
+            hybridization_temp: Temperature for secondary structure prediction (C)
         """
         self.num_processes = num_processes
-        self.analyzer = SequenceAnalyzer()
+        self.analyzer = SequenceAnalyzer(
+            na_equivalent=na,
+            dnac1_equivalent=dnac1,
+            dnac2_equivalent=dnac2,
+            hybridization_temp=hybridization_temp,
+        )
     
     def process_sequences(self, input_file: str, seq_filter: Optional[SequenceFilter] = None,
                          sample_size: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -317,6 +334,23 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help='Maximum melting temperature (°C)')
     
     # Other filters
+    # Thermodynamic parameters
+    parser.add_argument('--na', type=float, default=50.0,
+                       help='Monovalent salt concentration for Tm in mM (default: 50)')
+    parser.add_argument('--dnac1', type=float, default=250.0,
+                       help='Concentration of the more abundant strand in nM (default: 250)')
+    parser.add_argument('--dnac2', type=float, default=250.0,
+                       help='Concentration of the less abundant strand in nM (default: 250)')
+    parser.add_argument('--hyb-temp', dest='hyb_temp', type=float, default=65.0,
+                       help='Temperature in C for secondary structure prediction (default: 65)')
+    
+    parser.add_argument('--min-hairpin-dg', dest='min_hairpin_dg', type=float,
+                       help='Reject sequences whose hairpin dG (kcal/mol) is below this value, '
+                            'e.g. -3 (requires ViennaRNA)')
+    parser.add_argument('--min-dimer-dg', dest='min_dimer_dg', type=float,
+                       help='Reject sequences whose self-dimer dG (kcal/mol) is below this value, '
+                            'e.g. -6 (requires ViennaRNA)')
+    
     parser.add_argument('-K', '--maxmask', type=float,
                        help='Maximum percentage of masked (lowercase) bases')
     
@@ -354,11 +388,19 @@ def main(args) -> None:
         max_gc=args.maxgc,
         min_tm=args.mint,
         max_tm=args.maxt,
-        max_mask=args.maxmask
+        max_mask=args.maxmask,
+        min_hairpin_dg=args.min_hairpin_dg,
+        min_dimer_dg=args.min_dimer_dg
     )
     
     # Initialize calculator
-    calculator = SequenceStatsCalculator(num_processes=args.processes)
+    calculator = SequenceStatsCalculator(
+        num_processes=args.processes,
+        na=args.na,
+        dnac1=args.dnac1,
+        dnac2=args.dnac2,
+        hybridization_temp=args.hyb_temp,
+    )
     
     # Process sequences
     logging.info(f"Processing sequences from {args.input}")

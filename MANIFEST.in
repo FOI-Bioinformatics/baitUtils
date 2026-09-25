@@ -2,3 +2,4 @@ include README.md
 include LICENSE
 recursive-include docs *
 recursive-include examples *
+recursive-include baitUtils/templates *.css *.js

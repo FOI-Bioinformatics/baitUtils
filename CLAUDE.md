@@ -17,7 +17,7 @@ The project follows a modular, well-factored architecture with clear separation 
 - **`stats`** → `sequence_statistics.py` + `sequence_analysis.py` - Sequence statistics calculation
 - **`plot`** → `statistical_plots.py` + `plotting_utils.py` - Statistical visualization generation  
 - **`map`** → `sequence_mapping.py` + `mapping_utils.py` - Sequence mapping against references
-- **`check`** → `coverage_evaluation.py` + `coverage_checking.py` - Coverage evaluation and gap analysis
+- **`check`** → `coverage_evaluation.py` + `coverage_analysis.py` - Coverage evaluation and gap analysis
 - **`fill`** → `gap_filling.py` + `gap_filling_algorithm.py` + `coverage_analysis.py` - Multi-pass gap filling
 - **`evaluate`** → `evaluate.py` + supporting modules - Comprehensive oligo set evaluation
 - **`compare`** → `compare.py` + comparative analysis modules - Multi-set comparison
@@ -26,20 +26,22 @@ The project follows a modular, well-factored architecture with clear separation 
 - **`sequence_analysis.py`**: Core sequence analysis functions (GC content, Tm, MFE, entropy, complexity)
 - **`coverage_analysis.py`**: Coverage calculation utilities, PSL parsing, BED operations
 - **`plotting_utils.py`**: Comprehensive plotting utilities with multiple chart types
-- **`mapping_utils.py`**: Sequence mapping utilities with pblat integration
-- **`coverage_checking.py`**: Coverage checking and uncovered region analysis
+- **`mapping_utils.py`**: pblat integration, the single PSL parser (`PSLHit`, `parse_psl`, BLAT identity) and the per-bait hit table
+- **`bedtools_support.py`**: dependency check for the commands that need pybedtools and bedtools
+- **`json_export.py`**: JSON writer used by evaluate and compare
+- **`templates/`**: CSS and JavaScript for the HTML reports
 - **`gap_filling_algorithm.py`**: Multi-pass greedy selection algorithms
 
 ### Advanced Analysis Modules
-- **`quality_scorer.py`**: Quantitative quality assessment system
-- **`benchmark.py`**: Performance benchmarking against theoretical optimal
+- **`quality_scorer.py`**: Quality score in 0-1 with documented weights, targets and thresholds
+- **`benchmark.py`**: Comparison of observed metrics with the design targets in `QualityScorer.DEFAULT_BENCHMARKS`
 - **`reference_analyzer.py`**: Reference sequence complexity analysis
 - **`interactive_plots.py`**: Interactive Plotly visualizations
 - **`report_generator.py`**: HTML report generation
 
 ### Comparative Analysis
 - **`comparative_analyzer.py`**: Multi-set comparison framework
-- **`differential_analysis.py`**: Statistical testing for set comparisons
+- **`differential_analysis.py`**: Window-level coverage tests, paired per-reference tests and per-bait identity tests with multiple-comparison correction
 - **`comparative_visualizations.py`**: Comparative plotting suite
 - **`comparative_report_generator.py`**: Comparative HTML reports
 
@@ -62,6 +64,14 @@ pip install -e .
 
 ### Testing
 ```bash
+# Run all tests (pytest; fixtures in tests/conftest.py build a small dataset
+# with hand-derived expected values and a fake pblat on PATH)
+python -m pytest tests/
+
+# Tests that need pblat, bedtools and ViennaRNA skip unless the tools are on PATH
+# conda create -n baitutils-test -c conda-forge -c bioconda python=3.12 pybedtools bedtools pblat viennarna
+# PATH=$CONDA_PREFIX/bin:$PATH python -m pytest tests/
+
 # Run all tests
 python -m unittest discover tests/
 
@@ -154,7 +164,7 @@ Sequence mapping workflow:
 - Results categorization into mapped/unmapped sequences
 - FASTA output generation for different categories
 
-### Coverage Analysis (`coverage_checking.py`, `coverage_evaluation.py`)
+### Coverage Analysis (`coverage_analysis.py`, `coverage_evaluation.py`)
 Coverage evaluation system:
 - PSL to BED conversion with filtering
 - Coverage calculation using bedtools integration
@@ -202,7 +212,7 @@ baitUtils evaluate -i oligos.fasta -r reference.fasta -o results/ \
 ### Architecture
 - **`evaluate.py`**: Main orchestrator integrating all analysis components
 - **`coverage_stats.py`**: Coverage statistics computation
-- **`quality_scorer.py`**: Quality assessment with A-F grading
+- **`quality_scorer.py`**: Quality score in 0-1 with Excellent/Good/Fair/Poor categories
 - **`reference_analyzer.py`**: Reference sequence complexity analysis
 - **`gap_analysis.py`**: Gap characterization with sequence correlation
 

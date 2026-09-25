@@ -15,13 +15,13 @@ Usage:
 import argparse
 import logging
 import sys
-import tempfile
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from baitUtils._version import __version__
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
+from baitUtils.json_export import write_json
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
 
@@ -84,10 +84,10 @@ def add_arguments(parser):
     
     # Analysis options
     parser.add_argument(
-        '--enable-statistical-analysis',
-        action='store_true',
-        default=True,
-        help='Enable statistical significance testing (default: enabled)'
+        '--no-statistical-analysis',
+        dest='enable_statistical_analysis',
+        action='store_false',
+        help='Skip statistical significance testing'
     )
     parser.add_argument(
         '--significance-level',
@@ -117,11 +117,6 @@ def add_arguments(parser):
     )
     
     # Output control
-    parser.add_argument(
-        '--keep-intermediates',
-        action='store_true',
-        help='Keep intermediate mapping files'
-    )
     parser.add_argument(
         '--quiet',
         action='store_true',
@@ -157,7 +152,8 @@ def main(args):
         min_identity=args.min_identity,
         min_length=args.min_length,
         min_coverage=args.min_coverage,
-        target_coverage=args.target_coverage
+        target_coverage=args.target_coverage,
+        threads=args.threads
     )
     
     # Add each oligo set for analysis
@@ -174,7 +170,8 @@ def main(args):
     if args.enable_statistical_analysis:
         logging.info("Initializing statistical analysis...")
         differential_analyzer = DifferentialAnalyzer(
-            significance_level=args.significance_level
+            significance_level=args.significance_level,
+            correction_method=args.multiple_comparison_correction
         )
     
     # Generate visualizations
@@ -201,11 +198,34 @@ def main(args):
     logging.info("Exporting comparison data...")
     exported_files = analyzer.export_comparison_data()
     
-    # Copy intermediate files if requested
-    if args.keep_intermediates:
-        intermediates_dir = output_dir / "intermediates"
-        intermediates_dir.mkdir(exist_ok=True)
-        logging.info(f"Intermediate files would be saved to {intermediates_dir}")
+    statistics = None
+    if differential_analyzer is not None:
+        statistics = {'per_reference_metrics': differential_analyzer.compare_quality_metrics(analyzer.oligo_sets)}
+        if len(analyzer.oligo_sets) == 2:
+            first, second = analyzer.oligo_sets
+            statistics['coverage_distribution'] = differential_analyzer.compare_coverage_distributions(first, second)
+            statistics['bait_identity'] = differential_analyzer.compare_oligo_identity(first, second)
+            statistics['gap_sizes'] = differential_analyzer.analyze_gap_patterns(first, second)
+    json_file = write_json({
+        'reference': str(args.reference),
+        'parameters': {
+            'min_identity': args.min_identity, 'min_length': args.min_length,
+            'min_coverage': args.min_coverage, 'target_coverage': args.target_coverage,
+            'significance_level': args.significance_level,
+            'multiple_comparison_correction': args.multiple_comparison_correction,
+        },
+        'sets': [{
+            'name': r.name, 'file': r.file_path,
+            'coverage_stats': r.coverage_stats,
+            'gap_analysis': {k: v for k, v in r.gap_analysis.items() if k != 'feature_analysis'},
+            'quality_score': r.quality_score.to_dict(),
+            'benchmarks': r.benchmark_results,
+        } for r in analyzer.oligo_sets],
+        'comparison_matrix': comparison_matrix,
+        'ranking': analyzer.generate_ranking(),
+        'statistics': statistics,
+    }, output_dir / "comparison.json")
+    exported_files['json'] = str(json_file)
     
     # Print summary
     print_summary(analyzer, comparison_matrix, plots, report_file, exported_files)
@@ -310,7 +330,7 @@ def print_summary(analyzer: ComparativeAnalyzer, comparison_matrix, plots: Dict[
     
     print(f"Oligo Sets Compared:    {len(analyzer.oligo_sets)}")
     print(f"Best Performer:         {best_performer.name}")
-    print(f"Top Quality Score:      {best_performer.quality_score.overall_score:.1f}/10 (Grade {best_performer.quality_score.category.value})")
+    print(f"Top Quality Score:      {best_performer.quality_score.overall_score:.2f} (0-1, {best_performer.quality_score.category.value})")
     
     # Coverage range
     coverage_values = [result.coverage_stats.get('coverage_breadth', 0) for result in analyzer.oligo_sets]
@@ -323,9 +343,9 @@ def print_summary(analyzer: ComparativeAnalyzer, comparison_matrix, plots: Dict[
     print("\nRanking (Top 3):")
     for i, (name, score) in enumerate(ranking[:3], 1):
         oligo_set = next(result for result in analyzer.oligo_sets if result.name == name)
-        print(f"  {i}. {name:<20} Score: {score:.2f}, Grade: {oligo_set.quality_score.category.value}")
+        print(f"  {i}. {name:<20} Score: {score:.2f}, Category: {oligo_set.quality_score.category.value}")
     
-    print(f"\nResults Summary:")
+    print("\nResults Summary:")
     print(f"  📊 Interactive Report:   {Path(report_file).name}")
     print(f"  📈 Visualizations:       {len(plots)} plots generated")
     print(f"  📋 Data Exports:         {len(exported_files)} files exported")

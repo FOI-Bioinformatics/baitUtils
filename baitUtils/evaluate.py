@@ -13,18 +13,18 @@ Usage:
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List
 import subprocess
 import tempfile
 import shutil
 
-from Bio import SeqIO
 from baitUtils._version import __version__
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
+from baitUtils.json_export import write_json
+from baitUtils.mapping_utils import run_pblat
 from baitUtils.gap_analysis import GapAnalyzer
 from baitUtils.reference_analyzer import ReferenceAnalyzer
 from baitUtils.quality_scorer import QualityScorer
@@ -124,16 +124,21 @@ def add_arguments(parser):
     
     # Phase 2 features
     parser.add_argument(
-        '--enable-html-report',
-        action='store_true',
-        default=True,
-        help='Generate interactive HTML report (default: enabled)'
+        '--no-html-report',
+        dest='enable_html_report',
+        action='store_false',
+        help='Skip the interactive HTML report'
     )
     parser.add_argument(
-        '--enable-interactive-plots',
+        '--no-interactive-plots',
+        dest='enable_interactive_plots',
+        action='store_false',
+        help='Skip interactive plots'
+    )
+    parser.add_argument(
+        '--offline-plots',
         action='store_true',
-        default=True,
-        help='Generate interactive plots (default: enabled)'
+        help='Embed plotly.js in the HTML report instead of loading it from a CDN'
     )
     parser.add_argument(
         '--reference-analysis-window',
@@ -142,10 +147,10 @@ def add_arguments(parser):
         help='Window size for reference sequence analysis (default: 1000)'
     )
     parser.add_argument(
-        '--enable-benchmarking',
-        action='store_true',
-        default=True,
-        help='Enable benchmarking against theoretical optimal (default: enabled)'
+        '--no-benchmarking',
+        dest='enable_benchmarking',
+        action='store_false',
+        help='Skip benchmarking against design targets'
     )
     
     # Output control
@@ -195,7 +200,8 @@ def main(args):
             min_coverage=args.min_coverage,
             target_coverage=args.target_coverage,
             min_identity=args.min_identity,
-            min_length=args.min_length
+            min_length=args.min_length,
+            oligos_file=args.input
         )
         
         coverage_stats = analyzer.analyze()
@@ -206,7 +212,9 @@ def main(args):
             coverage_data=coverage_stats,
             reference_file=args.reference,
             min_gap_size=args.min_gap_size,
-            extend_bp=args.gap_extend
+            extend_bp=args.gap_extend,
+            coverage_arrays=analyzer.coverage_arrays,
+            min_coverage=args.min_coverage
         )
         
         gap_analysis = gap_analyzer.analyze()
@@ -233,10 +241,11 @@ def main(args):
             logging.info("Step 5/8: Analyzing reference sequences...")
             ref_analyzer = ReferenceAnalyzer(
                 reference_file=args.reference,
+                coverage_data=coverage_stats,
                 window_size=args.reference_analysis_window
             )
             reference_analysis = ref_analyzer.analyze()
-            
+
             # Step 6: Calculate quality scores
             logging.info("Step 6/8: Calculating quality scores...")
             quality_scorer = QualityScorer(
@@ -244,7 +253,7 @@ def main(args):
                 gap_analysis=gap_analysis,
                 reference_analysis=reference_analysis
             )
-            quality_score = quality_scorer.calculate_score()
+            quality_score = quality_scorer.calculate_quality_score()
             
             # Step 7: Run benchmarking analysis
             if args.enable_benchmarking:
@@ -264,10 +273,10 @@ def main(args):
                     coverage_stats=coverage_stats,
                     gap_analysis=gap_analysis,
                     reference_analysis=reference_analysis,
-                    quality_score=quality_score,
+                    quality_scores=quality_score.to_dict(),
                     output_dir=output_dir
                 )
-                interactive_plotter.generate_all_plots()
+                interactive_plotter.create_all_interactive_plots()
             
             # Step 9: Generate interactive HTML report
             if args.enable_html_report:
@@ -276,17 +285,17 @@ def main(args):
                     coverage_stats=coverage_stats,
                     gap_analysis=gap_analysis,
                     reference_analysis=reference_analysis,
-                    quality_score=quality_score,
+                    quality_scores=quality_score.to_dict(),
                     output_dir=output_dir,
-                    oligos_file=args.input,
-                    reference_file=args.reference
+                    offline_plots=args.offline_plots
                 )
                 report_generator.generate_report()
         
         # Step 5/Final: Generate standard reports
         step_num = "5/5" if not (args.enable_html_report or args.enable_interactive_plots or args.enable_benchmarking) else "Final"
         logging.info(f"Step {step_num}: Generating standard reports...")
-        generate_reports(coverage_stats, gap_analysis, output_dir, args, benchmark_results)
+        generate_reports(coverage_stats, gap_analysis, output_dir, args, benchmark_results,
+                         quality_score=quality_score, reference_analysis=reference_analysis)
         
         # Copy intermediate files if requested
         if args.keep_intermediates:
@@ -353,36 +362,11 @@ def perform_mapping(args, temp_dir: Path) -> Path:
     """Perform oligo mapping using pblat."""
     psl_file = temp_dir / "mapping.psl"
     
-    # Build pblat command
-    cmd = [
-        'pblat',
-        f'-threads={args.threads}',
-        f'-minIdentity={args.min_identity}',
-        f'-minScore=30',
-        f'-minMatch=2',
-        args.reference,
-        args.input,
-        str(psl_file)
-    ]
-    
-    logging.debug(f"Running pblat command: {' '.join(cmd)}")
-    
     try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        if result.stderr:
-            logging.debug(f"pblat stderr: {result.stderr}")
-            
-    except subprocess.CalledProcessError as e:
-        logging.error(f"pblat failed with return code {e.returncode}")
-        if e.stderr:
-            logging.error(f"pblat error: {e.stderr}")
+        run_pblat(args.reference, args.input, str(psl_file), threads=args.threads,
+                  min_identity=args.min_identity)
+    except RuntimeError as e:
+        logging.error(str(e))
         sys.exit(1)
     
     if not psl_file.exists() or psl_file.stat().st_size == 0:
@@ -393,8 +377,23 @@ def perform_mapping(args, temp_dir: Path) -> Path:
     return psl_file
 
 
-def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args, benchmark_results=None) -> None:
-    """Generate text-based reports."""
+def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args,
+                     benchmark_results=None, quality_score=None, reference_analysis=None) -> None:
+    """Generate text reports and the machine-readable evaluation.json."""
+    
+    write_json({
+        'inputs': {'oligos': str(args.input), 'reference': str(args.reference)},
+        'parameters': {
+            'min_identity': args.min_identity, 'min_length': args.min_length,
+            'min_coverage': args.min_coverage, 'target_coverage': args.target_coverage,
+            'min_gap_size': args.min_gap_size,
+        },
+        'coverage_stats': coverage_stats,
+        'gap_analysis': {k: v for k, v in gap_analysis.items() if k != 'feature_analysis'},
+        'quality_score': quality_score.to_dict() if quality_score is not None else None,
+        'benchmarks': benchmark_results,
+        'reference_summary': (reference_analysis or {}).get('summary'),
+    }, output_dir / "evaluation.json")
     
     # Coverage statistics report
     stats_file = output_dir / "coverage_statistics.txt"
@@ -538,8 +537,8 @@ def print_summary(coverage_stats: Dict, gap_analysis: Dict, quality_score=None) 
     print(f"Mapping Efficiency:   {coverage_stats.get('mapping_efficiency', 0):6.1f}%")
     
     if quality_score is not None:
-        print(f"Overall Quality:      {quality_score.overall_score:6.1f}/10")
-        print(f"Quality Grade:        {quality_score.category.value:>6s}")
+        print(f"Overall Quality:      {quality_score.overall_score:6.2f} (0-1)")
+        print(f"Quality Category:     {quality_score.category.value:>6s}")
     
     print("="*60)
 

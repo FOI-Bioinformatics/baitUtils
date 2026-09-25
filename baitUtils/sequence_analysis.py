@@ -20,6 +20,9 @@ from Bio.Align import PairwiseAligner
 try:
     import RNA  # ViennaRNA package for MFE calculation
     HAS_VIENNA_RNA = True
+    # Load DNA nearest-neighbour parameters (Mathews 2004) once. ViennaRNA
+    # defaults to RNA parameters, which are not appropriate for DNA baits.
+    RNA.params_load_DNA_Mathews2004()
 except ImportError:
     HAS_VIENNA_RNA = False
 
@@ -33,19 +36,21 @@ class SequenceAnalyzer:
     and secondary structure predictions.
     """
     
-    def __init__(self, na_equivalent: str = '50mM', dnac1_equivalent: float = 250.0, 
-                 dnac2_equivalent: float = 250.0):
+    def __init__(self, na_equivalent: float = 50.0, dnac1_equivalent: float = 250.0,
+                 dnac2_equivalent: float = 250.0, hybridization_temp: float = 65.0):
         """
         Initialize sequence analyzer with thermodynamic parameters.
         
         Args:
-            na_equivalent: Salt concentration for Tm calculations
-            dnac1_equivalent: DNA concentration 1 for Tm calculations (nM)
-            dnac2_equivalent: DNA concentration 2 for Tm calculations (nM)
+            na_equivalent: Monovalent salt concentration for Tm calculations (mM)
+            dnac1_equivalent: Concentration of the more abundant strand (nM)
+            dnac2_equivalent: Concentration of the less abundant strand (nM)
+            hybridization_temp: Temperature for secondary structure prediction (C)
         """
-        self.na_equivalent = na_equivalent
-        self.dnac1_equivalent = dnac1_equivalent
-        self.dnac2_equivalent = dnac2_equivalent
+        self.na_equivalent = float(na_equivalent)
+        self.dnac1_equivalent = float(dnac1_equivalent)
+        self.dnac2_equivalent = float(dnac2_equivalent)
+        self.hybridization_temp = float(hybridization_temp)
         
         # Initialize pairwise aligner for self-alignment
         self.aligner = PairwiseAligner()
@@ -70,7 +75,7 @@ class SequenceAnalyzer:
         """
         try:
             tm = mt.Tm_NN(
-                sequence, 
+                sequence.upper(),
                 Na=self.na_equivalent, 
                 dnac1=self.dnac1_equivalent, 
                 dnac2=self.dnac2_equivalent
@@ -80,28 +85,47 @@ class SequenceAnalyzer:
             logging.debug(f"Tm calculation error for sequence: {e}")
             return 'NA'
     
-    def calculate_mfe(self, sequence: str) -> Union[float, str]:
+    def calculate_hairpin_dg(self, sequence: str) -> Union[float, str]:
         """
-        Calculate Minimum Free Energy using ViennaRNA (if available).
-        
-        Args:
-            sequence: DNA sequence string
-            
-        Returns:
-            MFE value in kcal/mol or 'NA' if calculation fails or ViennaRNA unavailable
+        Minimum free energy of intramolecular folding (hairpin) in kcal/mol,
+        computed with ViennaRNA DNA parameters at the hybridization
+        temperature. Values near zero indicate little stable structure.
+        Returns 'NA' when ViennaRNA is unavailable.
         """
         if not HAS_VIENNA_RNA:
             return 'NA'
-        
         try:
             md = RNA.md()
-            md.material = 'DNA'  # Set to DNA parameters
-            fc = RNA.fold_compound(sequence, md)
+            md.temperature = self.hybridization_temp
+            fc = RNA.fold_compound(sequence.upper(), md)
             structure, mfe = fc.mfe()
-            return mfe
+            return float(mfe)
         except Exception as e:
-            logging.debug(f"MFE calculation error for sequence: {e}")
+            logging.debug(f"Hairpin dG calculation error for sequence: {e}")
             return 'NA'
+    
+    def calculate_self_dimer_dg(self, sequence: str) -> Union[float, str]:
+        """
+        Minimum free energy of the homodimer (two copies of the sequence)
+        in kcal/mol, computed with ViennaRNA cofolding using DNA parameters
+        at the hybridization temperature. Returns 'NA' when ViennaRNA is
+        unavailable.
+        """
+        if not HAS_VIENNA_RNA:
+            return 'NA'
+        try:
+            md = RNA.md()
+            md.temperature = self.hybridization_temp
+            seq = sequence.upper()
+            fc = RNA.fold_compound(f"{seq}&{seq}", md)
+            structure, mfe = fc.mfe_dimer()
+            return float(mfe)
+        except Exception as e:
+            logging.debug(f"Self-dimer dG calculation error for sequence: {e}")
+            return 'NA'
+    
+    # Backwards-compatible name
+    calculate_mfe = calculate_hairpin_dg
     
     def calculate_self_alignment_score(self, sequence: str) -> Union[float, str]:
         """
@@ -162,6 +186,7 @@ class SequenceAnalyzer:
         Returns:
             Complexity score (0-1, higher = more complex)
         """
+        sequence = sequence.upper()
         if len(sequence) < k:
             return 0.0
         
@@ -194,6 +219,7 @@ class SequenceAnalyzer:
         if not sequence:
             return runs
         
+        sequence = sequence.upper()
         current_base = sequence[0]
         current_start = 0
         current_length = 1
@@ -224,6 +250,7 @@ class SequenceAnalyzer:
         Returns:
             Bias score (0 = uniform, higher = more biased)
         """
+        sequence = sequence.upper()
         if len(sequence) < 2:
             return 0.0
         
@@ -274,7 +301,8 @@ class SequenceAnalyzer:
             'length': len(sequence),
             'gc_content': self.calculate_gc_content(sequence),
             'melting_temperature': self.calculate_melting_temperature(sequence),
-            'mfe': self.calculate_mfe(sequence),
+            'hairpin_dg': self.calculate_hairpin_dg(sequence),
+            'self_dimer_dg': self.calculate_self_dimer_dg(sequence),
             'entropy': self.calculate_entropy(sequence),
             'complexity_2mer': self.calculate_complexity(sequence, k=2),
             'complexity_3mer': self.calculate_complexity(sequence, k=3),

@@ -12,14 +12,14 @@ analysis functionality.
 """
 
 import logging
-import json
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, Optional
 from pathlib import Path
 import base64
 
-from baitUtils.comparative_analyzer import ComparativeAnalyzer, OligoSetResult
+from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
+from baitUtils.templates import load_template
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 
 
@@ -96,6 +96,9 @@ class ComparativeReportGenerator:
     
     def _get_html_header(self) -> str:
         """Generate HTML header with CSS styling."""
+        return self._html_header_template().replace("__CSS__", load_template("comparative_report.css"))
+    
+    def _html_header_template(self) -> str:
         return """
 <!DOCTYPE html>
 <html lang="en">
@@ -103,197 +106,7 @@ class ComparativeReportGenerator:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comparative Oligo Set Analysis Report</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 20px;
-            background-color: #f8f9fa;
-            color: #333;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            border-bottom: 3px solid #007bff;
-            padding-bottom: 20px;
-        }
-        .header h1 {
-            color: #007bff;
-            margin-bottom: 10px;
-            font-size: 2.5em;
-        }
-        .header .subtitle {
-            color: #6c757d;
-            font-size: 1.2em;
-        }
-        .section {
-            margin: 30px 0;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border-left: 4px solid #007bff;
-        }
-        .section h2 {
-            color: #007bff;
-            border-bottom: 2px solid #e9ecef;
-            padding-bottom: 10px;
-            margin-top: 0;
-        }
-        .section h3 {
-            color: #495057;
-            margin-top: 25px;
-        }
-        .comparison-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .comparison-table th,
-        .comparison-table td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #e9ecef;
-        }
-        .comparison-table th {
-            background: linear-gradient(135deg, #007bff, #0056b3);
-            color: white;
-            font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.9em;
-            letter-spacing: 0.5px;
-        }
-        .comparison-table tr:hover {
-            background-color: #f8f9fa;
-        }
-        .best-performer {
-            background-color: #d4edda !important;
-            font-weight: bold;
-        }
-        .metric-card {
-            display: inline-block;
-            background: linear-gradient(135deg, #28a745, #20c997);
-            color: white;
-            padding: 15px 20px;
-            margin: 10px;
-            border-radius: 8px;
-            text-align: center;
-            min-width: 150px;
-            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
-        }
-        .metric-card h4 {
-            margin: 0 0 5px 0;
-            font-size: 1.1em;
-        }
-        .metric-card .value {
-            font-size: 1.8em;
-            font-weight: bold;
-        }
-        .recommendation {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-        }
-        .recommendation.high-priority {
-            background: #f8d7da;
-            border-color: #f1aeb5;
-        }
-        .recommendation.medium-priority {
-            background: #fff3cd;
-            border-color: #ffeaa7;
-        }
-        .recommendation.low-priority {
-            background: #d1ecf1;
-            border-color: #b8daff;
-        }
-        .statistical-result {
-            background: white;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 15px 0;
-        }
-        .statistical-result.significant {
-            border-left: 4px solid #28a745;
-        }
-        .statistical-result.non-significant {
-            border-left: 4px solid #6c757d;
-        }
-        .plot-container {
-            text-align: center;
-            margin: 30px 0;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .plot-container img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
-        }
-        .collapsible {
-            background-color: #007bff;
-            color: white;
-            cursor: pointer;
-            padding: 18px;
-            width: 100%;
-            border: none;
-            text-align: left;
-            outline: none;
-            font-size: 15px;
-            border-radius: 8px;
-            margin-bottom: 5px;
-            transition: background-color 0.3s;
-        }
-        .collapsible:hover {
-            background-color: #0056b3;
-        }
-        .collapsible:after {
-            content: '\\002B';
-            color: white;
-            font-weight: bold;
-            float: right;
-            margin-left: 5px;
-        }
-        .collapsible.active:after {
-            content: "\\2212";
-        }
-        .content {
-            padding: 0 18px;
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.2s ease-out;
-            background-color: #f1f1f1;
-            border-radius: 0 0 8px 8px;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 50px;
-            padding-top: 30px;
-            border-top: 2px solid #e9ecef;
-            color: #6c757d;
-        }
-        .grade-a { color: #28a745; font-weight: bold; }
-        .grade-b { color: #17a2b8; font-weight: bold; }
-        .grade-c { color: #ffc107; font-weight: bold; }
-        .grade-d { color: #fd7e14; font-weight: bold; }
-        .grade-f { color: #dc3545; font-weight: bold; }
-    </style>
+    <style>__CSS__</style>
 </head>
 <body>
 <div class="container">
@@ -394,7 +207,6 @@ class ComparativeReportGenerator:
         
         # Find best performers for highlighting
         best_quality = comparison_matrix['Quality_Score'].max()
-        best_coverage = comparison_matrix['Coverage_Breadth_%'].max()
         
         for _, row in comparison_matrix.iterrows():
             # Highlight best performers
@@ -521,28 +333,20 @@ class ComparativeReportGenerator:
         if not self.differential_analyzer:
             return ""
         
-        # Perform statistical tests
+        alpha = self.differential_analyzer.significance_level
+        method = self.differential_analyzer.correction_method
         quality_tests = self.differential_analyzer.compare_quality_metrics(self.analyzer.oligo_sets)
         
-        html = """
+        html = f"""
     <div class="section">
-        <h2>📊 Statistical Analysis</h2>
-        <p>Statistical significance testing of differences between oligo sets:</p>
+        <h2>Statistical Analysis</h2>
+        <p>Paired tests across reference sequences (each reference is one observation).
+        P-values are adjusted for multiple comparisons ({method}); alpha = {alpha}.</p>
         
         """
         
-        for metric, test in quality_tests.items():
-            significance_class = "significant" if test.p_value <= 0.05 else "non-significant"
-            
-            html += f"""
-            <div class="statistical-result {significance_class}">
-                <h4>{metric.replace('_', ' ').title()}</h4>
-                <p><strong>Test:</strong> {test.test_name}</p>
-                <p><strong>P-value:</strong> {test.p_value:.4f} {test.significance_level}</p>
-                <p><strong>Effect Size:</strong> {test.effect_size:.3f}</p>
-                <p><strong>Interpretation:</strong> {test.interpretation}</p>
-            </div>
-            """
+        html += "".join(self._render_test(metric.replace('_', ' ').title(), test, alpha)
+                        for metric, test in quality_tests.items())
         
         # Add coverage distribution analysis for 2-set comparisons
         if len(self.analyzer.oligo_sets) == 2:
@@ -550,8 +354,9 @@ class ComparativeReportGenerator:
                 self.analyzer.oligo_sets[0], self.analyzer.oligo_sets[1]
             )
             
-            html += """
+            html += f"""
             <h3>Coverage Distribution Analysis</h3>
+            <p>Mean depth per {dist_comparison.window_size} bp window.</p>
             """
             
             for test_name, test in [
@@ -559,22 +364,42 @@ class ComparativeReportGenerator:
                 ("Mann-Whitney U Test", dist_comparison.mann_whitney_test),
                 ("Levene's Test", dist_comparison.levene_test)
             ]:
-                significance_class = "significant" if test.p_value <= 0.05 else "non-significant"
-                
-                html += f"""
-                <div class="statistical-result {significance_class}">
-                    <h4>{test_name}</h4>
-                    <p><strong>P-value:</strong> {test.p_value:.4f} {test.significance_level}</p>
-                    <p><strong>Effect Size:</strong> {test.effect_size:.3f}</p>
-                    <p><strong>Interpretation:</strong> {test.interpretation}</p>
-                </div>
-                """
+                html += self._render_test(test_name, test, alpha)
+            
+            identity_test = self.differential_analyzer.compare_oligo_identity(
+                self.analyzer.oligo_sets[0], self.analyzer.oligo_sets[1]
+            )
+            html += "<h3>Bait Identity</h3>"
+            html += self._render_test("Best-hit identity per bait", identity_test, alpha)
         
         html += """
     </div>
         """
         
         return html
+    
+    @staticmethod
+    def _render_test(title: str, test, alpha: float) -> str:
+        """Render one StatisticalTest as an HTML block."""
+        if not test.applicable:
+            return f"""
+            <div class="statistical-result non-significant">
+                <h4>{title}</h4>
+                <p><strong>Test:</strong> {test.test_name}</p>
+                <p><strong>Result:</strong> {test.interpretation}</p>
+            </div>
+            """
+        significance_class = "significant" if test.p_reported <= alpha else "non-significant"
+        adjusted = f" (adjusted {test.p_adjusted:.4f})" if test.p_adjusted is not None else ""
+        return f"""
+            <div class="statistical-result {significance_class}">
+                <h4>{title}</h4>
+                <p><strong>Test:</strong> {test.test_name} (n = {test.n})</p>
+                <p><strong>P-value:</strong> {test.p_value:.4f}{adjusted} {test.significance_level}</p>
+                <p><strong>Effect Size:</strong> {test.effect_size:.3f}</p>
+                <p><strong>Interpretation:</strong> {test.interpretation}</p>
+            </div>
+            """
     
     def _generate_gap_overlap_analysis(self, gap_analysis) -> str:
         """Generate gap overlap analysis section."""
@@ -810,8 +635,9 @@ class ComparativeReportGenerator:
         """
     
     def _get_html_footer(self) -> str:
-        """Generate HTML footer."""
-        
+        return self._get_html_footer_template().replace("__JS__", load_template("comparative_report.js"))
+    
+    def _get_html_footer_template(self) -> str:
         return """
     <div class="footer">
         <p>🤖 Generated with <a href="https://claude.ai/code" target="_blank">Claude Code</a></p>
@@ -821,23 +647,7 @@ class ComparativeReportGenerator:
 
 </div>
 
-<script>
-// Collapsible sections functionality
-var coll = document.getElementsByClassName("collapsible");
-var i;
-
-for (i = 0; i < coll.length; i++) {
-    coll[i].addEventListener("click", function() {
-        this.classList.toggle("active");
-        var content = this.nextElementSibling;
-        if (content.style.maxHeight){
-            content.style.maxHeight = null;
-        } else {
-            content.style.maxHeight = content.scrollHeight + "px";
-        }
-    });
-}
-</script>
+<script>__JS__</script>
 
 </body>
 </html>

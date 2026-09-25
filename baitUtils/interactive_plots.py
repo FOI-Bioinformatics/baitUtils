@@ -9,14 +9,11 @@ Creates dynamic, zoomable, and interactive plots for comprehensive analysis.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any
 import numpy as np
-import pandas as pd
 
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
-import plotly.offline as pyo
 
 
 class InteractivePlotter:

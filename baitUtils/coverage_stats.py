@@ -11,20 +11,31 @@ coverage metrics including breadth, depth, uniformity, and distributions.
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict, Counter
 import numpy as np
 import pandas as pd
 from datetime import datetime
 
 from Bio import SeqIO
 
-try:
-    import pybedtools
-    from pybedtools import BedTool
-    HAS_PYBEDTOOLS = True
-except ImportError:
-    HAS_PYBEDTOOLS = False
-    logging.warning("pybedtools not available - some coverage analysis features may be limited")
+from baitUtils.mapping_utils import SequenceLoader, parse_psl, build_hit_table
+
+
+
+def find_gap_intervals(coverage_array: np.ndarray, min_coverage: float = 1.0) -> List[Tuple[int, int]]:
+    """
+    Return half-open (start, end) intervals where depth is below min_coverage.
+
+    Coordinates are 0-based and follow BED conventions, so an interval
+    (start, end) covers positions start .. end - 1.
+    """
+    below = np.asarray(coverage_array) < min_coverage
+    if below.size == 0 or not below.any():
+        return []
+    padded = np.concatenate(([False], below, [False])).astype(np.int8)
+    edges = np.diff(padded)
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1)
+    return [(int(s), int(e)) for s, e in zip(starts, ends)]
 
 
 class CoverageAnalyzer:
@@ -37,7 +48,8 @@ class CoverageAnalyzer:
         min_coverage: float = 1.0,
         target_coverage: float = 10.0,
         min_identity: float = 90.0,
-        min_length: int = 100
+        min_length: int = 100,
+        oligos_file: Optional[Path] = None
     ):
         """
         Initialize the coverage analyzer.
@@ -49,9 +61,11 @@ class CoverageAnalyzer:
             target_coverage: Target coverage depth for analysis
             min_identity: Minimum mapping identity to consider
             min_length: Minimum mapping length to consider
+            oligos_file: Input oligo FASTA; needed for a true mapping efficiency
         """
         self.psl_file = Path(psl_file)
         self.reference_file = Path(reference_file)
+        self.oligos_file = Path(oligos_file) if oligos_file else None
         self.min_coverage = min_coverage
         self.target_coverage = target_coverage
         self.min_identity = min_identity
@@ -61,6 +75,7 @@ class CoverageAnalyzer:
         self.reference_sequences = {}
         self.mappings = []
         self.coverage_arrays = {}
+        self.hit_table = None
         self.stats = {}
     
     def analyze(self) -> Dict[str, Any]:
@@ -103,76 +118,27 @@ class CoverageAnalyzer:
             raise
     
     def _parse_psl_file(self) -> None:
-        """Parse PSL file and extract valid mappings."""
-        valid_mappings = 0
-        total_lines = 0
-        
-        try:
-            with open(self.psl_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    
-                    # Skip header and empty lines
-                    if (line.startswith(('psLayout', 'match', '-', '#')) or 
-                        not line or line.startswith('no matches')):
-                        continue
-                    
-                    total_lines += 1
-                    parts = line.split()
-                    
-                    if len(parts) < 21:
-                        continue
-                    
-                    try:
-                        # Parse PSL fields
-                        matches = int(parts[0])
-                        mismatches = int(parts[1])
-                        rep_matches = int(parts[2])
-                        n_count = int(parts[3])
-                        q_name = parts[9]
-                        q_size = int(parts[10])
-                        t_name = parts[13]
-                        t_size = int(parts[14])
-                        t_start = int(parts[15])
-                        t_end = int(parts[16])
-                        
-                        # Apply filters
-                        mapping_length = t_end - t_start
-                        if mapping_length < self.min_length:
-                            continue
-                        
-                        # Calculate identity
-                        total_aligned = matches + mismatches + rep_matches
-                        if total_aligned == 0:
-                            continue
-                        
-                        identity = (matches + rep_matches) / total_aligned * 100.0
-                        if identity < self.min_identity:
-                            continue
-                        
-                        # Store valid mapping
-                        mapping = {
-                            'query_name': q_name,
-                            'target_name': t_name,
-                            'target_start': t_start,
-                            'target_end': t_end,
-                            'length': mapping_length,
-                            'identity': identity,
-                            'matches': matches
-                        }
-                        
-                        self.mappings.append(mapping)
-                        valid_mappings += 1
-                        
-                    except (ValueError, IndexError) as e:
-                        logging.debug(f"Error parsing PSL line: {e}")
-                        continue
-            
-            logging.info(f"Parsed {valid_mappings} valid mappings from {total_lines} total lines")
-            
-        except Exception as e:
-            logging.error(f"Error parsing PSL file: {e}")
-            raise
+        """Parse the PSL file and keep hits passing the identity and length filters."""
+        total = 0
+        kept_hits = []
+        for hit in parse_psl(self.psl_file):
+            total += 1
+            if hit.aligned_length < self.min_length or hit.identity < self.min_identity:
+                continue
+            kept_hits.append(hit)
+            self.mappings.append({
+                'query_name': hit.q_name,
+                'target_name': hit.t_name,
+                'target_start': hit.t_start,
+                'target_end': hit.t_end,
+                'length': hit.aligned_length,
+                'identity': hit.identity,
+                'matches': hit.matches,
+                'strand': hit.strand,
+                'blocks': hit.target_blocks,
+            })
+        self.hit_table = build_hit_table(kept_hits)
+        logging.info(f"Parsed {len(self.mappings)} valid mappings from {total} total lines")
     
     def _compute_coverage_arrays(self) -> None:
         """Compute coverage depth arrays for each reference sequence."""
@@ -180,17 +146,15 @@ class CoverageAnalyzer:
         for ref_id, ref_data in self.reference_sequences.items():
             self.coverage_arrays[ref_id] = np.zeros(ref_data['length'], dtype=np.int32)
         
-        # Add coverage from mappings
+        # Add coverage from aligned blocks; target inserts are not covered
         for mapping in self.mappings:
             ref_id = mapping['target_name']
-            start = mapping['target_start']
-            end = mapping['target_end']
-            
-            if ref_id in self.coverage_arrays:
-                # Ensure indices are within bounds
+            if ref_id not in self.coverage_arrays:
+                continue
+            ref_len = len(self.coverage_arrays[ref_id])
+            for start, end in mapping.get('blocks', [(mapping['target_start'], mapping['target_end'])]):
                 start = max(0, start)
-                end = min(len(self.coverage_arrays[ref_id]), end)
-                
+                end = min(ref_len, end)
                 if start < end:
                     self.coverage_arrays[ref_id][start:end] += 1
         
@@ -239,9 +203,10 @@ class CoverageAnalyzer:
         logging.info("Comprehensive statistics calculated")
     
     def _count_total_oligos(self) -> int:
-        """Count total number of oligos from original input (estimate from mappings)."""
-        # This is an approximation since we only see mapped oligos
-        # In practice, this would come from counting the input FASTA
+        """Count oligos in the input FASTA, or fall back to the mapped count."""
+        if self.oligos_file is not None:
+            return SequenceLoader.count_sequences(str(self.oligos_file))
+        logging.warning("No oligo FASTA given; mapping efficiency is computed from mapped oligos only")
         return len(set(m['query_name'] for m in self.mappings))
     
     def _calculate_depth_statistics(self) -> None:
@@ -362,24 +327,7 @@ class CoverageAnalyzer:
     
     def _count_gaps_in_sequence(self, coverage_array: np.ndarray) -> int:
         """Count number of coverage gaps in a sequence."""
-        # Find positions below minimum coverage
-        below_threshold = coverage_array < self.min_coverage
-        
-        # Count transitions from covered to uncovered
-        if len(below_threshold) <= 1:
-            return 0
-        
-        # Find gap boundaries
-        gap_starts = np.where(np.diff(below_threshold.astype(int)) == 1)[0] + 1
-        gap_ends = np.where(np.diff(below_threshold.astype(int)) == -1)[0] + 1
-        
-        # Handle edge cases
-        if below_threshold[0]:
-            gap_starts = np.concatenate([[0], gap_starts])
-        if below_threshold[-1]:
-            gap_ends = np.concatenate([gap_ends, [len(below_threshold)]])
-        
-        return len(gap_starts)
+        return len(find_gap_intervals(coverage_array, self.min_coverage))
     
     def export_coverage_data(self, output_dir: Path) -> None:
         """Export detailed coverage data to files."""
@@ -405,38 +353,12 @@ class CoverageAnalyzer:
         # Export gap regions in BED format
         gap_regions = []
         for ref_id, cov_array in self.coverage_arrays.items():
-            below_threshold = cov_array < self.min_coverage
-            
-            if not np.any(below_threshold):
-                continue
-            
-            # Find gap boundaries
-            gap_starts = []
-            gap_ends = []
-            
-            in_gap = False
-            gap_start = 0
-            
-            for i, is_gap in enumerate(below_threshold):
-                if is_gap and not in_gap:
-                    gap_start = i
-                    in_gap = True
-                elif not is_gap and in_gap:
-                    gap_regions.append({
-                        'chromosome': ref_id,
-                        'start': gap_start,
-                        'end': i,
-                        'length': i - gap_start
-                    })
-                    in_gap = False
-            
-            # Handle gap at end
-            if in_gap:
+            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
                 gap_regions.append({
                     'chromosome': ref_id,
                     'start': gap_start,
-                    'end': len(cov_array),
-                    'length': len(cov_array) - gap_start
+                    'end': gap_end,
+                    'length': gap_end - gap_start
                 })
         
         if gap_regions:
@@ -450,4 +372,4 @@ class CoverageAnalyzer:
             
             logging.info(f"Gap regions exported to {gap_file}")
         
-        return coverage_df, gap_regions if gap_regions else pd.DataFrame()
+        return coverage_df, pd.DataFrame(gap_regions)

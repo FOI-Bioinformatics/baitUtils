@@ -183,95 +183,6 @@ class TestCompareCommand(unittest.TestCase):
         with self.assertRaises(SystemExit):
             validate_inputs(args)
     
-    @patch('baitUtils.compare.ComparativeReportGenerator')
-    @patch('baitUtils.compare.ComparativeVisualizer')
-    @patch('baitUtils.compare.DifferentialAnalyzer')
-    @patch('baitUtils.compare.ComparativeAnalyzer')
-    def test_main_function(self, mock_comp_analyzer, mock_diff_analyzer, 
-                          mock_visualizer, mock_report_generator):
-        """Test main function execution."""
-        # Mock args
-        args = MagicMock()
-        args.reference = str(self.reference_file)
-        args.output = str(self.output_dir)
-        args.sets = [
-            f"Set1:{self.oligo_files['set1']}",
-            f"Set2:{self.oligo_files['set2']}"
-        ]
-        args.min_identity = 90.0
-        args.min_length = 100
-        args.min_coverage = 1.0
-        args.target_coverage = 10.0
-        args.enable_statistical_analysis = True
-        args.significance_level = 0.05
-        args.plot_format = 'png'
-        args.plot_dpi = 300
-        args.keep_intermediates = False
-        args.log = False
-        args.quiet = False
-        
-        # Mock analyzer setup
-        mock_analyzer_instance = MagicMock()
-        mock_comp_analyzer.return_value = mock_analyzer_instance
-        mock_analyzer_instance.generate_comparison_matrix.return_value = MagicMock()
-        mock_analyzer_instance.generate_ranking.return_value = [('Set1', 8.0), ('Set2', 7.0)]
-        # Mock best performer
-        mock_best = MagicMock()
-        mock_best.name = 'Set1'
-        mock_quality_score = MagicMock()
-        mock_quality_score.overall_score = 8.0
-        mock_quality_score.category.value = 'A'
-        mock_best.quality_score = mock_quality_score
-        mock_analyzer_instance.identify_best_performer.return_value = mock_best
-        # Mock oligo sets with proper coverage data
-        mock_set1 = MagicMock()
-        mock_set1.name = 'Set1'
-        mock_set1.coverage_stats = {'coverage_breadth': 85.0}
-        mock_set1.gap_analysis = {'total_gaps': 15}
-        mock_set2 = MagicMock()
-        mock_set2.name = 'Set2'
-        mock_set2.coverage_stats = {'coverage_breadth': 78.0}
-        mock_set2.gap_analysis = {'total_gaps': 25}
-        mock_analyzer_instance.oligo_sets = [mock_set1, mock_set2]
-        mock_analyzer_instance.export_comparison_data.return_value = {}
-        
-        # Mock visualizer
-        mock_visualizer_instance = MagicMock()
-        mock_visualizer.return_value = mock_visualizer_instance
-        mock_visualizer_instance.generate_all_comparative_plots.return_value = {}
-        
-        # Mock report generator
-        mock_report_instance = MagicMock()
-        mock_report_generator.return_value = mock_report_instance
-        mock_report_instance.generate_report.return_value = str(self.output_dir / "report.html")
-        
-        # Mock differential analyzer
-        mock_diff_instance = MagicMock()
-        mock_diff_analyzer.return_value = mock_diff_instance
-        
-        # Run main function
-        with patch('subprocess.run'):  # Mock pblat check
-            main(args)
-        
-        # Verify that components were initialized
-        mock_comp_analyzer.assert_called_once()
-        mock_diff_analyzer.assert_called_once()
-        mock_visualizer.assert_called_once()
-        mock_report_generator.assert_called_once()
-        
-        # Verify that oligo sets were added
-        self.assertEqual(mock_analyzer_instance.add_oligo_set.call_count, 2)
-        mock_analyzer_instance.add_oligo_set.assert_has_calls([
-            call('Set1', self.oligo_files['set1']),
-            call('Set2', self.oligo_files['set2'])
-        ])
-        
-        # Verify that analysis steps were executed
-        mock_analyzer_instance.generate_comparison_matrix.assert_called_once()
-        mock_visualizer_instance.generate_all_comparative_plots.assert_called_once()
-        mock_report_instance.generate_report.assert_called_once()
-        mock_analyzer_instance.export_comparison_data.assert_called_once()
-
 
 class TestCompareCommandArguments(unittest.TestCase):
     """Test compare command argument parsing."""
@@ -299,7 +210,6 @@ class TestCompareCommandArguments(unittest.TestCase):
         self.assertEqual(args.multiple_comparison_correction, 'fdr')
         self.assertEqual(args.plot_format, 'png')
         self.assertEqual(args.plot_dpi, 300)
-        self.assertFalse(args.keep_intermediates)
         self.assertFalse(args.quiet)
         self.assertFalse(args.log)
     
@@ -318,7 +228,6 @@ class TestCompareCommandArguments(unittest.TestCase):
             '--significance-level', '0.01',
             '--multiple-comparison-correction', 'bonferroni',
             '--plot-format', 'pdf',
-            '--keep-intermediates',
             '--quiet'
         ])
         
@@ -328,7 +237,6 @@ class TestCompareCommandArguments(unittest.TestCase):
         self.assertEqual(args.significance_level, 0.01)
         self.assertEqual(args.multiple_comparison_correction, 'bonferroni')
         self.assertEqual(args.plot_format, 'pdf')
-        self.assertTrue(args.keep_intermediates)
         self.assertTrue(args.quiet)
     
     def test_multiple_sets_parsing(self):

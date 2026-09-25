@@ -15,7 +15,7 @@ setup(
         'matplotlib>=3.4.0',
         'seaborn>=0.11.0',
         'scikit-learn>=0.24.0',
-        'biopython>=1.78',
+        'biopython>=1.80',
         'plotly>=5.0.0',
         'scipy>=1.7.0',
         'tqdm>=4.60.0',
@@ -43,5 +43,6 @@ setup(
         'License :: OSI Approved :: MIT License',
     ],
     include_package_data=True,
+    package_data={'baitUtils': ['templates/*.css', 'templates/*.js']},
     python_requires='>=3.10',
 )

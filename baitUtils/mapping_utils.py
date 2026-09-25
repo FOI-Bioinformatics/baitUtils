@@ -8,12 +8,210 @@ Provides functionality for running mappers, parsing results, and managing output
 """
 
 import logging
+import math
 import os
-import sys
 import subprocess
-from typing import Set, Dict, Optional, List
+from dataclasses import dataclass, field
+from typing import Set, Dict, Optional, List, Iterator, Iterable, Tuple, Union
 from pathlib import Path
+
+import pandas as pd
 from Bio import SeqIO
+
+
+PSL_HEADER_PREFIXES = ("psLayout", "match", "-", "#", "no matches")
+
+
+@dataclass
+class PSLHit:
+    """One alignment from a BLAT/pblat PSL file (all 21 columns)."""
+    matches: int
+    mismatches: int
+    rep_matches: int
+    n_count: int
+    q_num_insert: int
+    q_base_insert: int
+    t_num_insert: int
+    t_base_insert: int
+    strand: str
+    q_name: str
+    q_size: int
+    q_start: int
+    q_end: int
+    t_name: str
+    t_size: int
+    t_start: int
+    t_end: int
+    block_sizes: List[int] = field(default_factory=list)
+    q_starts: List[int] = field(default_factory=list)
+    t_starts: List[int] = field(default_factory=list)
+    line: str = ""
+
+    @property
+    def aligned_length(self) -> int:
+        """Number of query bases inside aligned blocks."""
+        return sum(self.block_sizes) if self.block_sizes else (self.q_end - self.q_start)
+
+    @property
+    def target_span(self) -> int:
+        """Target bases from first to last aligned base, including target inserts."""
+        return self.t_end - self.t_start
+
+    @property
+    def target_blocks(self) -> List[Tuple[int, int]]:
+        """Half-open target intervals of the aligned blocks."""
+        if not self.block_sizes:
+            return [(self.t_start, self.t_end)]
+        return [(ts, ts + size) for ts, size in zip(self.t_starts, self.block_sizes)]
+
+    def milli_bad(self, is_mrna: bool = True) -> float:
+        """
+        BLAT's pslCalcMilliBad: mismatches per thousand aligned bases,
+        penalising query inserts and (unless is_mrna) target inserts and
+        alignment size differences. pblat applies -minIdentity with
+        is_mrna=True, so that is the default here.
+        """
+        q_ali = self.q_end - self.q_start
+        t_ali = self.t_end - self.t_start
+        ali_size = min(q_ali, t_ali)
+        if ali_size <= 0:
+            return 0.0
+        size_dif = q_ali - t_ali
+        if size_dif < 0:
+            size_dif = 0 if is_mrna else -size_dif
+        insert_factor = self.q_num_insert
+        if not is_mrna:
+            insert_factor += self.t_num_insert
+        total = self.matches + self.rep_matches + self.mismatches
+        if total == 0:
+            return 0.0
+        penalty = self.mismatches + insert_factor + round(3 * math.log(1 + size_dif))
+        return 1000.0 * penalty / total
+
+    @property
+    def identity(self) -> float:
+        """Percent identity as BLAT reports it (100 - milliBad / 10)."""
+        return 100.0 - self.milli_bad() / 10.0
+
+
+def _int_list(text: str) -> List[int]:
+    return [int(x) for x in text.strip().split(",") if x]
+
+
+def parse_psl_line(line: str) -> Optional[PSLHit]:
+    """Parse one PSL data line; return None when it is not a valid 21-column row."""
+    cols = line.rstrip("\n").split("\t")
+    if len(cols) < 21:
+        cols = line.split()
+    if len(cols) < 21:
+        return None
+    try:
+        return PSLHit(
+            matches=int(cols[0]), mismatches=int(cols[1]), rep_matches=int(cols[2]),
+            n_count=int(cols[3]), q_num_insert=int(cols[4]), q_base_insert=int(cols[5]),
+            t_num_insert=int(cols[6]), t_base_insert=int(cols[7]), strand=cols[8],
+            q_name=cols[9], q_size=int(cols[10]), q_start=int(cols[11]), q_end=int(cols[12]),
+            t_name=cols[13], t_size=int(cols[14]), t_start=int(cols[15]), t_end=int(cols[16]),
+            block_sizes=_int_list(cols[18]), q_starts=_int_list(cols[19]),
+            t_starts=_int_list(cols[20]), line=line.rstrip("\n"),
+        )
+    except (ValueError, IndexError):
+        return None
+
+
+def is_psl_header(line: str) -> bool:
+    return line.startswith(PSL_HEADER_PREFIXES)
+
+
+def parse_psl(psl_path: Union[str, Path]) -> Iterator[PSLHit]:
+    """
+    Yield PSLHit records from a PSL file, skipping header lines.
+
+    Malformed data lines are skipped and counted; a single warning with the
+    count is logged at the end so that problems are visible without flooding
+    the log.
+    """
+    skipped = 0
+    with open(psl_path) as fh:
+        for line in fh:
+            if not line.strip() or is_psl_header(line):
+                continue
+            hit = parse_psl_line(line)
+            if hit is None:
+                skipped += 1
+                continue
+            yield hit
+    if skipped:
+        logging.warning(f"Skipped {skipped} malformed line(s) in {psl_path}")
+
+
+def build_hit_table(hits: Iterable[PSLHit]) -> pd.DataFrame:
+    """
+    Summarise hits per query (bait) for off-target assessment.
+
+    Columns: oligo_id, n_hits, n_targets, best_identity, second_best_identity,
+    best_target, best_start, best_end, best_strand, best_aligned_length.
+    Hits are ranked by identity, then aligned length.
+    """
+    per_query: Dict[str, List[PSLHit]] = {}
+    for hit in hits:
+        per_query.setdefault(hit.q_name, []).append(hit)
+
+    rows = []
+    for q_name, q_hits in per_query.items():
+        ranked = sorted(q_hits, key=lambda h: (h.identity, h.aligned_length), reverse=True)
+        best = ranked[0]
+        rows.append({
+            'oligo_id': q_name,
+            'n_hits': len(ranked),
+            'n_targets': len({h.t_name for h in ranked}),
+            'best_identity': round(best.identity, 2),
+            'second_best_identity': round(ranked[1].identity, 2) if len(ranked) > 1 else float('nan'),
+            'best_target': best.t_name,
+            'best_start': best.t_start,
+            'best_end': best.t_end,
+            'best_strand': best.strand,
+            'best_aligned_length': best.aligned_length,
+        })
+    columns = ['oligo_id', 'n_hits', 'n_targets', 'best_identity', 'second_best_identity',
+               'best_target', 'best_start', 'best_end', 'best_strand', 'best_aligned_length']
+    return pd.DataFrame(rows, columns=columns).sort_values('oligo_id').reset_index(drop=True)
+
+
+def filter_hits(hits: Iterable[PSLHit], min_identity: float = 0.0, min_length: int = 0,
+                min_matches: int = 0) -> Iterator[PSLHit]:
+    """Keep hits with identity, aligned length and match count at or above the thresholds."""
+    for hit in hits:
+        if hit.aligned_length < min_length or hit.matches < min_matches:
+            continue
+        if hit.identity < min_identity:
+            continue
+        yield hit
+
+
+def run_pblat(reference: str, query: str, output_psl: str, threads: int = 1,
+              min_identity: float = 90.0, min_score: int = 30, min_match: int = 2) -> None:
+    """
+    Run pblat and raise RuntimeError on failure.
+
+    When pblat is killed by a signal (negative return code) and more than one
+    thread was requested, the run is retried once with a single thread, since
+    multi-threaded pblat has been observed to die sporadically on small inputs.
+    """
+    def command(n_threads: int) -> List[str]:
+        return ['pblat', f'-threads={n_threads}', f'-minIdentity={min_identity}',
+                f'-minScore={min_score}', f'-minMatch={min_match}',
+                str(reference), str(query), str(output_psl)]
+
+    result = subprocess.run(command(threads), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode < 0 and threads > 1:
+        logging.warning(f"pblat was terminated by signal {-result.returncode} with {threads} threads; "
+                        "retrying with a single thread")
+        result = subprocess.run(command(1), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"pblat failed with return code {result.returncode}: {result.stderr.strip()}")
+    if result.stderr:
+        logging.debug(f"pblat stderr: {result.stderr.strip()}")
 
 
 class SequenceLoader:
@@ -80,11 +278,11 @@ class SequenceLoader:
 
 
 class PblatRunner:
-    """Handles running pblat mapping tool."""
+    """Runs pblat for the map command (see run_pblat for the retry behaviour)."""
     
     @staticmethod
     def run_pblat(
-        baits_file: str,
+        input_file: str,
         target_file: str,
         output_file: str,
         threads: int = 1,
@@ -92,46 +290,15 @@ class PblatRunner:
         min_score: int = 30,
         min_identity: int = 90
     ) -> None:
-        """
-        Run pblat to map sequences against target.
-        
-        Args:
-            baits_file: Path to input FASTA file with sequences to map
-            target_file: Path to target FASTA file to map against
-            output_file: Path to output PSL file
-            threads: Number of threads to use
-            min_match: Minimum number of tile matches
-            min_score: Minimum score
-            min_identity: Minimum sequence identity percentage
-        """
-        cmd = [
-            'pblat',
-            f'-threads={threads}',
-            f'-minMatch={min_match}',
-            f'-minScore={min_score}',
-            f'-minIdentity={min_identity}',
-            target_file,
-            baits_file,
-            output_file
-        ]
-
-        logging.info(f"Running pblat: {' '.join(cmd)}")
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, 
-                          stderr=subprocess.DEVNULL)
-            logging.info(f"pblat completed successfully. Output: {output_file}")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"pblat failed with return code {e.returncode}")
-            raise
-        except FileNotFoundError:
-            logging.error("pblat not found in PATH. Please install pblat.")
-            raise
-        except Exception as e:
-            logging.error(f"Error running pblat: {e}")
-            raise
+        """Map input_file (baits) against target_file (reference) into output_file."""
+        logging.info(f"Running pblat with {threads} thread(s)...")
+        run_pblat(target_file, input_file, output_file, threads=threads,
+                  min_identity=min_identity, min_score=min_score, min_match=min_match)
+        logging.info(f"pblat mapping completed: {output_file}")
 
 
 class PSLParser:
+    last_hit_table = None  # hit table from the most recent parse_psl_file call
     """Parses PSL files and extracts mapping information."""
     
     @staticmethod
@@ -139,102 +306,41 @@ class PSLParser:
         psl_file: str,
         min_identity: float = 90.0,
         min_match_count: int = 0,
-        filtered_output: Optional[str] = None
+        filtered_output: Optional[str] = None,
+        min_length: int = 0
     ) -> Set[str]:
         """
-        Parse PSL file and return set of sequence IDs that meet criteria.
-        
+        Return the set of query IDs with at least one hit passing the filters.
+
         Args:
             psl_file: Path to PSL file
-            min_identity: Minimum identity percentage for filtering
-            min_match_count: Minimum number of matching bases required
-            filtered_output: Optional path to save filtered PSL entries
-            
-        Returns:
-            Set of sequence IDs that passed filters
+            min_identity: Minimum BLAT identity percentage
+            min_match_count: Minimum number of matching bases
+            filtered_output: Optional path for the passing PSL rows
+            min_length: Minimum aligned length in bases
         """
         mapped_sequences = set()
-        header_lines = []
         filtered_hits = []
-        
-        try:
-            with open(psl_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    
-                    # Handle header lines
-                    if PSLParser._is_header_line(line):
-                        if filtered_output:
-                            header_lines.append(line)
-                        continue
-                    
-                    if not line:
-                        continue
-                    
-                    # Parse PSL line
-                    hit_info = PSLParser._parse_psl_line(line)
-                    if hit_info is None:
-                        continue
-                    
-                    matches, identity_pct, seq_id = hit_info
-                    
-                    # Apply filters
-                    if matches >= min_match_count and identity_pct >= min_identity:
-                        mapped_sequences.add(seq_id)
-                        if filtered_output:
-                            filtered_hits.append(line)
+        kept = []
+        for hit in filter_hits(parse_psl(psl_file), min_identity, min_length, min_match_count):
+            mapped_sequences.add(hit.q_name)
+            kept.append(hit)
+            if filtered_output:
+                filtered_hits.append(hit.line)
+        PSLParser.last_hit_table = build_hit_table(kept)
 
-            # Write filtered output if requested
-            if filtered_output and filtered_hits:
-                PSLParser._write_filtered_psl(filtered_output, header_lines, filtered_hits)
-                logging.info(f"Wrote {len(filtered_hits)} filtered hits to {filtered_output}")
+        if filtered_output:
+            header_lines = []
+            with open(psl_file) as fh:
+                for line in fh:
+                    if is_psl_header(line):
+                        header_lines.append(line.rstrip("\n"))
+                    elif line.strip():
+                        break
+            PSLParser._write_filtered_psl(filtered_output, header_lines, filtered_hits)
+            logging.info(f"Wrote {len(filtered_hits)} filtered hits to {filtered_output}")
 
-        except Exception as e:
-            logging.error(f"Error parsing PSL file {psl_file}: {e}")
-            raise
-            
         return mapped_sequences
-
-    @staticmethod
-    def _is_header_line(line: str) -> bool:
-        """Check if line is a PSL header line."""
-        return (line.startswith('psLayout') or 
-                line.startswith('-') or 
-                line.startswith('match') or 
-                line.startswith('no matches'))
-
-    @staticmethod
-    def _parse_psl_line(line: str) -> Optional[tuple]:
-        """
-        Parse a single PSL data line.
-        
-        Returns:
-            Tuple of (matches, identity_percentage, sequence_id) or None if invalid
-        """
-        cols = line.split()
-        if len(cols) < 21:
-            return None
-        
-        try:
-            matches = int(cols[0])
-            mismatches = int(cols[1])
-            rep_matches = int(cols[2])
-            n_count = int(cols[3])
-            q_num_insert = int(cols[4])
-            seq_id = cols[9]
-            
-            # Calculate identity percentage
-            size = matches + mismatches + rep_matches + q_num_insert
-            if size == 0:
-                return None
-            
-            identity_pct = 100.0 * (matches + rep_matches) / size
-            
-            return matches, identity_pct, seq_id
-            
-        except (ValueError, IndexError) as e:
-            logging.warning(f"Invalid PSL line format: {line[:50]}...")
-            return None
 
     @staticmethod
     def _write_filtered_psl(output_path: str, headers: List[str], hits: List[str]) -> None:
