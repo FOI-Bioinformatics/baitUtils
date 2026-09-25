@@ -18,12 +18,12 @@ change output file names and options.
 Requirements: Python 3.10 or later. Two external tools are needed for parts
 of the workflow:
 
-- pblat for `map`, `evaluate` and `compare`
+- pblat or minimap2 for `map`, `evaluate` and `compare` (`--mapper`)
 - bedtools (with the pybedtools package) for `check` and `fill`
 - ViennaRNA (optional) for the hairpin and dimer energies in `stats`
 
 ```bash
-conda create -n baitutils -c conda-forge -c bioconda python=3.12 pblat bedtools pybedtools viennarna
+conda create -n baitutils -c conda-forge -c bioconda python=3.12 pblat minimap2 bedtools pybedtools viennarna
 conda activate baitutils
 pip install baitutils          # or: pip install -e .  from a clone
 ```
@@ -37,11 +37,11 @@ scikit-learn, biopython (1.80 or later), plotly, scipy, tqdm.
 |------------|--------------------------------------------------------------|-----------------|
 | `stats`    | Per-bait sequence statistics and filtering                   | ViennaRNA (opt) |
 | `plot`     | Plots from a statistics table                                |                 |
-| `map`      | Map baits to a reference with pblat; per-bait hit table      | pblat           |
-| `check`    | Coverage and uncovered regions from a PSL file               | bedtools        |
+| `map`      | Map baits to a reference; per-bait hit table                 | pblat/minimap2  |
+| `check`    | Coverage and uncovered regions from a PSL or PAF file        | bedtools        |
 | `fill`     | Greedy multi-pass selection of baits to close gaps           | bedtools        |
-| `evaluate` | Mapping, coverage, gaps, quality score and HTML report       | pblat           |
-| `compare`  | Evaluate several bait sets and test differences between them | pblat           |
+| `evaluate` | Mapping, coverage, gaps, quality score and HTML report       | pblat/minimap2  |
+| `compare`  | Evaluate several bait sets and test differences between them | pblat/minimap2  |
 
 `baitUtils <command> --help` lists all options.
 
@@ -86,10 +86,10 @@ baitUtils map -i baits.fasta -q reference.fasta -o mapping/ --prefix run \
   --threads 4 --minIdentity 90 --filterIdentity 95 --min-length 100 --max-hits 1
 ```
 
-Runs pblat (`-i` baits, `-q` reference) and writes, under `-o` with the
+Runs the mapper (`-i` baits, `-q` reference) and writes, under `-o` with the
 `--prefix`:
 
-- `run-mapping.psl` and `run-mapping_filtered.psl`
+- `run-mapping.psl` (pblat) or `run-mapping.paf` (minimap2) and `run-mapping_filtered.*`
 - `run-hits.tsv`: per bait, number of hits and targets, best and second-best
   identity, best locus and strand
 - `run-mapped-sequence-ids.txt`, `run-unmapped-sequence-ids.txt`
@@ -99,6 +99,13 @@ Identity follows BLAT's calculation, so `--filterIdentity` is on the same
 scale as pblat's `-minIdentity`. `--max-hits` treats baits with more passing
 hits as unmapped, which removes multi-mapping baits.
 
+`--mapper minimap2` runs minimap2 with base-level alignment (`-c`, so
+cigars and edit distances are available), secondary hits kept, and the
+preset from `--minimap2-preset` (default `sr`). PAF input is converted to
+the same hit representation as PSL, so all downstream numbers are
+comparable between the two mappers apart from differences in the
+alignments themselves.
+
 In our tests pblat occasionally returned one hit fewer when run with several
 threads on a very small input, and once terminated with a signal. `map`,
 `evaluate` and `compare` retry once with a single thread after a signal;
@@ -107,13 +114,13 @@ for small inputs `--threads 1` is the safer choice.
 ### check
 
 ```bash
-baitUtils check --psl mapping/run-mapping.psl --reference reference.fasta \
+baitUtils check --alignments mapping/run-mapping.psl --reference reference.fasta \
   --min_coverage 1 --min_similarity 95 --min_length 100 \
   --longest_uncovered_out uncovered.tsv --coverage_out coverage.tsv \
   --uncovered_fasta uncovered.fasta --n_split_fasta uncovered_split.fasta
 ```
 
-Converts PSL hits (aligned blocks) to BED, computes depth with bedtools and
+Converts PSL or PAF hits (aligned blocks) to BED, computes depth with bedtools and
 reports runs below `--min_coverage`. Reference sizes come from the FASTA, so
 regions after the last mapped bait are included. `--forced_oligos` restricts
 the check to a list of bait IDs. `--uncovered_fasta` exports the uncovered
@@ -123,7 +130,7 @@ pieces of at least `--min_oligo_length`.
 ### fill
 
 ```bash
-baitUtils fill --psl mapping/run-mapping.psl --reference reference.fasta \
+baitUtils fill --alignments mapping/run-mapping.psl --reference reference.fasta \
   --output selected.txt --min_coverage 1 --spacing_distance 30 \
   --min_contribution 5 --max_passes 5
 ```
@@ -164,7 +171,15 @@ evaluation/
 ```
 
 Mapping efficiency counts baits in the input FASTA. Gap coordinates come from
-the per-base coverage arrays. The quality score is a weighted sum of five
+the per-base coverage arrays.
+
+Reference analysis computes sequence features per reference and per window
+(`--reference-analysis-window`, default 1000 bp): GC, N content, entropy,
+homopolymer content and repetitive content (fraction of duplicated
+12-mers). Each window also carries its observed breadth and mean depth, and
+the report gives Spearman correlations between features and coverage across
+windows with p-values, breadth by GC decile, and the windows with low
+breadth and an extreme feature. All of this is linear in reference length. The quality score is a weighted sum of five
 component scores in 0 to 1 (breadth, depth, mapping efficiency, gaps,
 reference difficulty) with categories Excellent (0.85 or more), Good (0.70),
 Fair (0.50) and Poor. Weights and targets are documented in
@@ -205,7 +220,7 @@ this section.
 baitUtils stats    -i baits.fasta -o stats/ --filter --mingc 35 --maxgc 65
 baitUtils evaluate -i stats/filtered_sequences.fasta -r target.fasta -o eval/
 baitUtils map      -i candidates.fasta -q target.fasta -o map/ --prefix cand
-baitUtils fill     --psl map/cand-mapping.psl --reference target.fasta --output add.txt
+baitUtils fill     --alignments map/cand-mapping.psl --reference target.fasta --output add.txt
 baitUtils compare  -r target.fasta -o cmp/ --sets "v1:baits.fasta" "v2:baits_v2.fasta"
 ```
 

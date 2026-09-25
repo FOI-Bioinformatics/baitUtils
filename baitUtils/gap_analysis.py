@@ -18,6 +18,7 @@ from Bio import SeqIO
 from Bio.SeqUtils import gc_fraction
 
 from baitUtils.coverage_stats import find_gap_intervals
+from baitUtils.sequence_features import encode, repeat_content
 
 
 class GapAnalyzer:
@@ -212,27 +213,8 @@ class GapAnalyzer:
         return entropy
     
     def _calculate_repeat_content(self, sequence: str) -> float:
-        """Estimate repetitive content in sequence."""
-        if len(sequence) < 6:
-            return 0.0
-        
-        repeat_bases = 0
-        window_size = 6
-        
-        for i in range(len(sequence) - window_size + 1):
-            kmer = sequence[i:i + window_size]
-            
-            # Count occurrences of this k-mer
-            count = 0
-            for j in range(len(sequence) - window_size + 1):
-                if sequence[j:j + window_size] == kmer:
-                    count += 1
-            
-            # If k-mer appears multiple times, count as repetitive
-            if count > 1:
-                repeat_bases += 1
-        
-        return (repeat_bases / max(1, len(sequence) - window_size + 1)) * 100
+        """Percentage of 6-mer positions whose 6-mer occurs more than once in the gap sequence."""
+        return repeat_content(encode(sequence), k=6)
     
     def _find_max_homopolymer(self, sequence: str) -> int:
         """Find maximum homopolymer run length."""

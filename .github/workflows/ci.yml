@@ -115,7 +115,7 @@ jobs:
         fail_ci_if_error: false
 
   external-tools:
-    # Runs the tests that need pblat, bedtools and ViennaRNA
+    # Runs the tests that need pblat, minimap2, bedtools and ViennaRNA
     runs-on: ubuntu-latest
     needs: test
     if: success()
@@ -137,7 +137,7 @@ jobs:
 
     - name: Install external tools and package
       run: |
-        conda install -y pybedtools bedtools pblat viennarna pytest
+        conda install -y pybedtools bedtools pblat minimap2 viennarna pytest
         pip install -e .
 
     - name: Run test suite with external tools

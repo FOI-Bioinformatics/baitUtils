@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 (2026-09-25)
+
+### Added
+
+- minimap2 as an alternative mapper for `map`, `evaluate` and `compare`
+  (`--mapper minimap2`, `--minimap2-preset`). PAF files from minimap2 -c are
+  parsed into the same hit representation as PSL, including aligned blocks
+  from the cigar and mismatches from the NM tag.
+- `check` and `fill` accept PAF as well as PSL through `--alignments`
+  (`--psl` remains as an alias); the format is chosen by file extension.
+- Reference analysis reports real Spearman correlations between window
+  features and observed coverage (with p-values and window counts), breadth
+  by GC decile, and challenging windows (low breadth with an extreme
+  feature). Window-level coverage is taken from the per-base arrays.
+
+### Changed
+
+- Reference analysis is vectorized (new `sequence_features` module) and
+  runs in linear time; a 5 Mb reference takes about two seconds. Repeat
+  content is the fraction of duplicated 12-mers rather than a heuristic
+  scan. The fixed-formula "correlations" are removed. The
+  `window_features` and `coverage_correlations` entries in
+  `evaluation.json` have a new structure.
+- Gap analysis repeat content uses the same k-mer routine instead of a
+  quadratic loop.
+
 ## 0.3.0 (2026-09-25)
 
 This release makes the documented functionality work as described. An audit

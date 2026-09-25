@@ -106,7 +106,8 @@ class TestCompareCommand(unittest.TestCase):
         args.significance_level = 0.05
         
         # Should not raise exception
-        with patch('subprocess.run'):
+        args.mapper = 'pblat'
+        with patch('baitUtils.compare.check_mapper_available', return_value=True):
             validate_inputs(args)
     
     def test_validate_inputs_missing_reference(self):

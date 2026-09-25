@@ -65,6 +65,21 @@ def _write_fasta(path: Path, records) -> None:
             fh.write(f">{name}\n{seq}\n")
 
 
+def _paf_row(matches, mismatches, strand, qname, qsize, qstart, qend,
+             tname, tsize, tstart, tend, blocks):
+    """Build one PAF row with a cg:Z cigar and NM tag equivalent to _psl_row."""
+    ops = []
+    for (s1, _, t1), (s2, _, t2) in zip(blocks, blocks[1:]):
+        ops.append(f"{s1}M")
+        ops.append(f"{t2 - (t1 + s1)}D")
+    ops.append(f"{blocks[-1][0]}M")
+    gap_bases = sum(t2 - (t1 + s1) for (s1, _, t1), (_, _, t2) in zip(blocks, blocks[1:]))
+    block_len = sum(b[0] for b in blocks) + gap_bases
+    cols = [qname, qsize, qstart, qend, strand, tname, tsize, tstart, tend,
+            matches, block_len, 60, f"NM:i:{mismatches + gap_bases}", "tp:A:P", f"cg:Z:{''.join(ops)}"]
+    return "\t".join(str(c) for c in cols)
+
+
 def _psl_row(matches, mismatches, strand, qname, qsize, qstart, qend,
              tname, tsize, tstart, tend, blocks):
     """Build one 21-column PSL row. blocks is a list of (size, qstart, tstart)."""
@@ -95,15 +110,16 @@ def dataset(tmp_path_factory) -> dict:
     ref = {name: _random_seq(rng, n) for name, n in CHR_LENGTHS.items()}
     baits = []
     psl_rows = []
+    paf_rows = []
 
     def add_tile(prefix, idx, chrom, start):
         name = f"{prefix}_{idx:02d}"
         seq = ref[chrom][start:start + BAIT_LEN]
         baits.append((name, seq))
-        psl_rows.append(_psl_row(
-            BAIT_LEN, 0, "+", name, BAIT_LEN, 0, BAIT_LEN,
-            chrom, CHR_LENGTHS[chrom], start, start + BAIT_LEN,
-            [(BAIT_LEN, 0, start)]))
+        args = (BAIT_LEN, 0, "+", name, BAIT_LEN, 0, BAIT_LEN,
+                chrom, CHR_LENGTHS[chrom], start, start + BAIT_LEN, [(BAIT_LEN, 0, start)])
+        psl_rows.append(_psl_row(*args))
+        paf_rows.append(_paf_row(*args))
 
     for i, s in enumerate(A_STARTS_1 + A_STARTS_2):
         add_tile("A", i, "chrA", s)
@@ -113,18 +129,18 @@ def dataset(tmp_path_factory) -> dict:
     # Gapped alignment: two 60 bp blocks separated by a 10 bp target insert.
     g_seq = ref["chrB"][500:560] + ref["chrB"][570:630]
     baits.append(("G_00", g_seq))
-    psl_rows.append(_psl_row(
-        BAIT_LEN, 0, "+", "G_00", BAIT_LEN, 0, BAIT_LEN,
-        "chrB", CHR_LENGTHS["chrB"], 500, 630,
-        [(60, 0, 500), (60, 60, 570)]))
+    g_args = (BAIT_LEN, 0, "+", "G_00", BAIT_LEN, 0, BAIT_LEN,
+              "chrB", CHR_LENGTHS["chrB"], 500, 630, [(60, 0, 500), (60, 60, 570)])
+    psl_rows.append(_psl_row(*g_args))
+    paf_rows.append(_paf_row(*g_args))
 
     # Low identity bait: 20 mismatches over 120 bp.
     l_seq = _mutate(rng, ref["chrA"][500:620], 20)
     baits.append(("L_00", l_seq))
-    psl_rows.append(_psl_row(
-        100, 20, "+", "L_00", BAIT_LEN, 0, BAIT_LEN,
-        "chrA", CHR_LENGTHS["chrA"], 500, 620,
-        [(BAIT_LEN, 0, 500)]))
+    l_args = (100, 20, "+", "L_00", BAIT_LEN, 0, BAIT_LEN,
+              "chrA", CHR_LENGTHS["chrA"], 500, 620, [(BAIT_LEN, 0, 500)])
+    psl_rows.append(_psl_row(*l_args))
+    paf_rows.append(_paf_row(*l_args))
 
     # Unmapped baits.
     for i in range(3):
@@ -133,15 +149,18 @@ def dataset(tmp_path_factory) -> dict:
     ref_fa = root / "reference.fa"
     bait_fa = root / "baits.fa"
     psl = root / "hits.psl"
+    paf = root / "hits.paf"
     _write_fasta(ref_fa, ref.items())
     _write_fasta(bait_fa, baits)
     psl.write_text("\n".join(psl_rows) + "\n")
+    paf.write_text("\n".join(paf_rows) + "\n")
 
     return {
         "root": root,
         "reference": ref_fa,
         "baits": bait_fa,
         "psl": psl,
+        "paf": paf,
         "reference_seqs": ref,
         "bait_seqs": dict(baits),
         "expected": EXPECTED,
@@ -159,6 +178,22 @@ def fake_pblat(dataset, tmp_path, monkeypatch) -> Path:
         "if [ $# -eq 0 ]; then echo 'pblat - fake' >&2; exit 0; fi\n"
         "for last; do :; done\n"
         f"cp '{dataset['psl']}' \"$last\"\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    return script
+
+
+@pytest.fixture
+def fake_minimap2(dataset, tmp_path, monkeypatch) -> Path:
+    """Put a fake minimap2 on PATH that prints the fixture PAF to stdout."""
+    bin_dir = tmp_path / "fakebin_mm2"
+    bin_dir.mkdir()
+    script = bin_dir / "minimap2"
+    script.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = --version ]; then echo fake; exit 0; fi\n"
+        f"cat '{dataset['paf']}'\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")

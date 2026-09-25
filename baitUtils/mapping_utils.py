@@ -10,6 +10,8 @@ Provides functionality for running mappers, parsing results, and managing output
 import logging
 import math
 import os
+import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from typing import Set, Dict, Optional, List, Iterator, Iterable, Tuple, Union
@@ -143,6 +145,154 @@ def parse_psl(psl_path: Union[str, Path]) -> Iterator[PSLHit]:
             yield hit
     if skipped:
         logging.warning(f"Skipped {skipped} malformed line(s) in {psl_path}")
+
+
+_CIGAR_RE = re.compile(r"(\d+)([MIDNSHP=X])")
+
+
+def parse_paf_line(line: str) -> Optional[PSLHit]:
+    """
+    Convert one PAF line (minimap2) into a PSLHit.
+
+    Aligned blocks come from the cg:Z cigar when present (minimap2 -c);
+    without it the hit is one block spanning the target interval and the
+    mismatch count is taken from the alignment block length minus matches.
+    Query block starts are given in forward query coordinates.
+    """
+    cols = line.rstrip("\n").split("\t")
+    if len(cols) < 12:
+        return None
+    try:
+        q_name, q_size, q_start, q_end, strand = cols[0], int(cols[1]), int(cols[2]), int(cols[3]), cols[4]
+        t_name, t_size, t_start, t_end = cols[5], int(cols[6]), int(cols[7]), int(cols[8])
+        matches, block_len = int(cols[9]), int(cols[10])
+    except ValueError:
+        return None
+    if strand not in ("+", "-"):
+        return None
+
+    tags = {}
+    for tag in cols[12:]:
+        parts = tag.split(":", 2)
+        if len(parts) == 3:
+            tags[parts[0]] = parts[2]
+
+    block_sizes: List[int] = []
+    q_starts: List[int] = []
+    t_starts: List[int] = []
+    q_num_insert = q_base_insert = t_num_insert = t_base_insert = 0
+    cigar = tags.get("cg")
+    if cigar:
+        q_pos, t_pos = q_start, t_start
+        for length, op in _CIGAR_RE.findall(cigar):
+            length = int(length)
+            if op in ("M", "=", "X"):
+                if block_sizes and q_starts[-1] + block_sizes[-1] == q_pos and t_starts[-1] + block_sizes[-1] == t_pos:
+                    block_sizes[-1] += length
+                else:
+                    block_sizes.append(length)
+                    q_starts.append(q_pos)
+                    t_starts.append(t_pos)
+                q_pos += length
+                t_pos += length
+            elif op == "I":
+                q_num_insert += 1
+                q_base_insert += length
+                q_pos += length
+            elif op in ("D", "N"):
+                t_num_insert += 1
+                t_base_insert += length
+                t_pos += length
+            # S, H and P do not occur in PAF cigars from minimap2
+    if not block_sizes:
+        block_sizes, q_starts, t_starts = [min(q_end - q_start, t_end - t_start)], [q_start], [t_start]
+
+    aligned = sum(block_sizes)
+    if "NM" in tags:
+        mismatches = max(0, int(tags["NM"]) - q_base_insert - t_base_insert)
+    else:
+        mismatches = max(0, block_len - matches - q_base_insert - t_base_insert)
+    matches = min(matches, aligned)
+
+    return PSLHit(
+        matches=matches, mismatches=mismatches, rep_matches=0, n_count=0,
+        q_num_insert=q_num_insert, q_base_insert=q_base_insert,
+        t_num_insert=t_num_insert, t_base_insert=t_base_insert,
+        strand=strand, q_name=q_name, q_size=q_size, q_start=q_start, q_end=q_end,
+        t_name=t_name, t_size=t_size, t_start=t_start, t_end=t_end,
+        block_sizes=block_sizes, q_starts=q_starts, t_starts=t_starts, line=line.rstrip("\n"),
+    )
+
+
+def parse_paf(paf_path: Union[str, Path]) -> Iterator[PSLHit]:
+    """Yield PSLHit records from a PAF file, skipping comment and malformed lines."""
+    skipped = 0
+    with open(paf_path) as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#"):
+                continue
+            hit = parse_paf_line(line)
+            if hit is None:
+                skipped += 1
+                continue
+            yield hit
+    if skipped:
+        logging.warning(f"Skipped {skipped} malformed line(s) in {paf_path}")
+
+
+def alignment_format(path: Union[str, Path]) -> str:
+    """'paf' for .paf files (optionally gzipped name), otherwise 'psl'."""
+    name = str(path).lower()
+    if name.endswith(".gz"):
+        name = name[:-3]
+    return "paf" if name.endswith(".paf") else "psl"
+
+
+def parse_alignments(path: Union[str, Path]) -> Iterator[PSLHit]:
+    """Yield PSLHit records from a PSL or PAF file, chosen by file extension."""
+    if alignment_format(path) == "paf":
+        return parse_paf(path)
+    return parse_psl(path)
+
+
+def run_minimap2(reference: str, query: str, output_paf: str, threads: int = 1,
+                 preset: str = "sr", max_secondary: int = 10) -> None:
+    """
+    Run minimap2 with base-level alignment (-c) so that cigars and NM tags
+    are available, keeping secondary hits for off-target assessment.
+    """
+    cmd = ["minimap2", "-c", "-x", preset, "--secondary=yes", f"-N{max_secondary}",
+           "-t", str(threads), str(reference), str(query)]
+    with open(output_paf, "w") as out:
+        result = subprocess.run(cmd, stdout=out, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"minimap2 failed with return code {result.returncode}: {result.stderr.strip()}")
+    if result.stderr:
+        logging.debug(f"minimap2 stderr: {result.stderr.strip()}")
+
+
+MAPPERS = ("pblat", "minimap2")
+
+
+def check_mapper_available(mapper: str) -> bool:
+    """True when the mapper binary is on PATH."""
+    return shutil.which(mapper) is not None
+
+
+def run_mapper(mapper: str, reference: str, query: str, output_dir: str, basename: str,
+               threads: int = 1, min_identity: float = 90.0, minimap2_preset: str = "sr",
+               min_score: int = 30, min_match: int = 2) -> str:
+    """Run the chosen mapper and return the alignment file path (PSL for pblat, PAF for minimap2)."""
+    if mapper == "pblat":
+        output = os.path.join(output_dir, f"{basename}.psl")
+        run_pblat(reference, query, output, threads=threads, min_identity=min_identity,
+                  min_score=min_score, min_match=min_match)
+    elif mapper == "minimap2":
+        output = os.path.join(output_dir, f"{basename}.paf")
+        run_minimap2(reference, query, output, threads=threads, preset=minimap2_preset)
+    else:
+        raise ValueError(f"Unsupported mapper: {mapper}")
+    return output
 
 
 def build_hit_table(hits: Iterable[PSLHit]) -> pd.DataFrame:
@@ -322,7 +472,7 @@ class PSLParser:
         mapped_sequences = set()
         filtered_hits = []
         kept = []
-        for hit in filter_hits(parse_psl(psl_file), min_identity, min_length, min_match_count):
+        for hit in filter_hits(parse_alignments(psl_file), min_identity, min_length, min_match_count):
             mapped_sequences.add(hit.q_name)
             kept.append(hit)
             if filtered_output:
@@ -331,12 +481,13 @@ class PSLParser:
 
         if filtered_output:
             header_lines = []
-            with open(psl_file) as fh:
-                for line in fh:
-                    if is_psl_header(line):
-                        header_lines.append(line.rstrip("\n"))
-                    elif line.strip():
-                        break
+            if alignment_format(psl_file) == "psl":
+                with open(psl_file) as fh:
+                    for line in fh:
+                        if is_psl_header(line):
+                            header_lines.append(line.rstrip("\n"))
+                        elif line.strip():
+                            break
             PSLParser._write_filtered_psl(filtered_output, header_lines, filtered_hits)
             logging.info(f"Wrote {len(filtered_hits)} filtered hits to {filtered_output}")
 
@@ -429,7 +580,8 @@ class SequenceMapper:
         threads: int = 1,
         min_match: int = 2,
         min_score: int = 30,
-        min_identity: int = 90
+        min_identity: int = 90,
+        minimap2_preset: str = 'sr'
     ) -> str:
         """
         Map sequences against target using specified mapper.
@@ -448,18 +600,9 @@ class SequenceMapper:
         Returns:
             Path to mapping output file
         """
-        # Determine output file path
-        mapping_output = os.path.join(output_dir, f"{output_prefix}-mapping.psl")
-        
-        if mapper == 'pblat':
-            self.pblat_runner.run_pblat(
-                input_file, target_file, mapping_output,
-                threads, min_match, min_score, min_identity
-            )
-        else:
-            raise ValueError(f"Unsupported mapper: {mapper}")
-        
-        return mapping_output
+        return run_mapper(mapper, target_file, input_file, output_dir, f"{output_prefix}-mapping",
+                          threads=threads, min_identity=min_identity, minimap2_preset=minimap2_preset,
+                          min_score=min_score, min_match=min_match)
 
 
 def create_output_directory(directory: str) -> None:
