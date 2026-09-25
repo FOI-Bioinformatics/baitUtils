@@ -24,6 +24,7 @@ from tqdm import tqdm
 from Bio import SeqIO
 
 from baitUtils.gap_filling_algorithm import OligoMapping
+from baitUtils.mapping_utils import parse_psl, filter_hits
 
 
 def merge_uncovered_intervals(
@@ -66,48 +67,28 @@ def merge_uncovered_intervals(
 
 
 class PSLParser:
-    """Parses PSL files into BED format."""
+    """Converts PSL hits into a sorted BedTool of aligned blocks."""
     
     @staticmethod
     def parse_psl_to_bed(
         psl_path: Path,
         min_length: int,
         min_similarity: float,
-        temp_dir: Optional[Path] = None
+        temp_dir: Optional[Path] = None,
+        basename: str = "temp_fill.bed"
     ) -> Any:
         """
-        Parse PSL file into BED format (keeping only hits above min_length and min_similarity).
+        Write one BED row per aligned block for hits with aligned length >= min_length
+        and BLAT identity >= min_similarity, and return the sorted BedTool.
         """
-        def parse_psl_lines():
-            with open(psl_path) as f:
-                for line in tqdm(f, desc="Parsing PSL", unit=" lines"):
-                    if line.startswith(("psLayout", "match", "-", "#")):
-                        continue
-                    parts = line.strip().split()
-                    if len(parts) < 17:
-                        continue
-                    try:
-                        matches = int(parts[0])
-                        qName = parts[9].strip().upper()
-                        qSize = float(parts[10])
-                        ref_id = parts[13]
-                        tStart = int(parts[15])
-                        tEnd = int(parts[16])
-                        if (tEnd - tStart) < min_length:
-                            continue
-                        if (matches / qSize * 100.0) < min_similarity:
-                            continue
-                        yield f"{ref_id}\t{tStart}\t{tEnd}\t{qName}\t1.0\n"
-                    except (ValueError, IndexError):
-                        continue
-
-        temp_bed = "temp_fill.bed"
-        if temp_dir:
-            temp_bed = str(temp_dir / "temp_fill.bed")
-
+        temp_bed = basename if temp_dir is None else str(temp_dir / basename)
+        kept = 0
         with open(temp_bed, "w") as f:
-            for record in parse_psl_lines():
-                f.write(record)
+            for hit in filter_hits(parse_psl(psl_path), min_similarity, min_length):
+                kept += 1
+                for start, end in hit.target_blocks:
+                    f.write(f"{hit.t_name}\t{start}\t{end}\t{hit.q_name}\t1.0\n")
+        logging.info(f"Kept {kept} PSL hits after filtering")
         return BedTool(temp_bed).sort()
 
 
@@ -307,7 +288,7 @@ class ForcedOligoHandler:
             return set()
         try:
             with open(path) as f:
-                return {line.strip().upper() for line in f if line.strip()}
+                return {line.strip() for line in f if line.strip()}
         except Exception as e:
             logging.error(f"Error reading forced oligos: {e}")
             raise

@@ -85,9 +85,6 @@ class SequenceMappingProcessor:
         seq_records = self.sequence_loader.load_sequence_records(args.input)
         all_sequence_ids = set(seq_records.keys())
         
-        logging.info("Reading genome FASTA file...")
-        genome_seq_count = self.sequence_loader.count_sequences(args.query)
-        
         return seq_records, all_sequence_ids
     
     def _perform_mapping(self, args) -> str:
@@ -119,7 +116,8 @@ class SequenceMappingProcessor:
             mapping_output,
             args.filterIdentity,
             args.minMatchCount,
-            mapping_filtered_output
+            mapping_filtered_output,
+            args.min_length
         )
         
         return mapped_sequences
@@ -199,6 +197,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                             '(must be >= minIdentity, default: 90)')
     parser.add_argument('--minMatchCount', type=int, default=0,
                        help='Minimum number of matching bases required (default: 0)')
+    parser.add_argument('--min-length', dest='min_length', type=int, default=0,
+                       help='Minimum aligned length in bases for a hit to count (default: 0)')
     
     # Output options
     parser.add_argument('--fasta-output', 

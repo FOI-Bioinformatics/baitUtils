@@ -18,7 +18,7 @@ from datetime import datetime
 
 from Bio import SeqIO
 
-from baitUtils.mapping_utils import SequenceLoader
+from baitUtils.mapping_utils import SequenceLoader, parse_psl
 
 try:
     import pybedtools
@@ -124,76 +124,24 @@ class CoverageAnalyzer:
             raise
     
     def _parse_psl_file(self) -> None:
-        """Parse PSL file and extract valid mappings."""
-        valid_mappings = 0
-        total_lines = 0
-        
-        try:
-            with open(self.psl_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    
-                    # Skip header and empty lines
-                    if (line.startswith(('psLayout', 'match', '-', '#')) or 
-                        not line or line.startswith('no matches')):
-                        continue
-                    
-                    total_lines += 1
-                    parts = line.split()
-                    
-                    if len(parts) < 21:
-                        continue
-                    
-                    try:
-                        # Parse PSL fields
-                        matches = int(parts[0])
-                        mismatches = int(parts[1])
-                        rep_matches = int(parts[2])
-                        n_count = int(parts[3])
-                        q_name = parts[9]
-                        q_size = int(parts[10])
-                        t_name = parts[13]
-                        t_size = int(parts[14])
-                        t_start = int(parts[15])
-                        t_end = int(parts[16])
-                        
-                        # Apply filters
-                        mapping_length = t_end - t_start
-                        if mapping_length < self.min_length:
-                            continue
-                        
-                        # Calculate identity
-                        total_aligned = matches + mismatches + rep_matches
-                        if total_aligned == 0:
-                            continue
-                        
-                        identity = (matches + rep_matches) / total_aligned * 100.0
-                        if identity < self.min_identity:
-                            continue
-                        
-                        # Store valid mapping
-                        mapping = {
-                            'query_name': q_name,
-                            'target_name': t_name,
-                            'target_start': t_start,
-                            'target_end': t_end,
-                            'length': mapping_length,
-                            'identity': identity,
-                            'matches': matches
-                        }
-                        
-                        self.mappings.append(mapping)
-                        valid_mappings += 1
-                        
-                    except (ValueError, IndexError) as e:
-                        logging.debug(f"Error parsing PSL line: {e}")
-                        continue
-            
-            logging.info(f"Parsed {valid_mappings} valid mappings from {total_lines} total lines")
-            
-        except Exception as e:
-            logging.error(f"Error parsing PSL file: {e}")
-            raise
+        """Parse the PSL file and keep hits passing the identity and length filters."""
+        total = 0
+        for hit in parse_psl(self.psl_file):
+            total += 1
+            if hit.aligned_length < self.min_length or hit.identity < self.min_identity:
+                continue
+            self.mappings.append({
+                'query_name': hit.q_name,
+                'target_name': hit.t_name,
+                'target_start': hit.t_start,
+                'target_end': hit.t_end,
+                'length': hit.aligned_length,
+                'identity': hit.identity,
+                'matches': hit.matches,
+                'strand': hit.strand,
+                'blocks': hit.target_blocks,
+            })
+        logging.info(f"Parsed {len(self.mappings)} valid mappings from {total} total lines")
     
     def _compute_coverage_arrays(self) -> None:
         """Compute coverage depth arrays for each reference sequence."""
@@ -201,17 +149,15 @@ class CoverageAnalyzer:
         for ref_id, ref_data in self.reference_sequences.items():
             self.coverage_arrays[ref_id] = np.zeros(ref_data['length'], dtype=np.int32)
         
-        # Add coverage from mappings
+        # Add coverage from aligned blocks; target inserts are not covered
         for mapping in self.mappings:
             ref_id = mapping['target_name']
-            start = mapping['target_start']
-            end = mapping['target_end']
-            
-            if ref_id in self.coverage_arrays:
-                # Ensure indices are within bounds
+            if ref_id not in self.coverage_arrays:
+                continue
+            ref_len = len(self.coverage_arrays[ref_id])
+            for start, end in mapping.get('blocks', [(mapping['target_start'], mapping['target_end'])]):
                 start = max(0, start)
-                end = min(len(self.coverage_arrays[ref_id]), end)
-                
+                end = min(ref_len, end)
                 if start < end:
                     self.coverage_arrays[ref_id][start:end] += 1
         

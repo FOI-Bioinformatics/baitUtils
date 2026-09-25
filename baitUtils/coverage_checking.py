@@ -33,7 +33,7 @@ def _merge_uncovered_intervals(intervals, min_coverage):
 
 
 class PSLToBedConverter:
-    """Converts PSL files to BED format for coverage analysis."""
+    """Converts PSL files to BED format for coverage analysis (see coverage_analysis.PSLParser)."""
     
     @staticmethod
     def parse_psl_to_bed(
@@ -42,38 +42,8 @@ class PSLToBedConverter:
         min_similarity: float,
         temp_dir: Optional[Path] = None
     ) -> Any:
-        """Parse PSL file into BED format with filtering."""
-        def parse_psl_lines():
-            with open(psl_path) as f:
-                for line in tqdm(f, desc="Parsing PSL", unit=" lines"):
-                    if line.startswith(("psLayout", "match", "-", "#")):
-                        continue
-                    parts = line.strip().split()
-                    if len(parts) < 17:
-                        continue
-                    try:
-                        matches = int(parts[0])
-                        qName = parts[9].strip().upper()
-                        qSize = float(parts[10])
-                        ref_id = parts[13]
-                        tStart = int(parts[15])
-                        tEnd = int(parts[16])
-                        if (tEnd - tStart) < min_length:
-                            continue
-                        if (matches / qSize * 100.0) < min_similarity:
-                            continue
-                        yield f"{ref_id}\t{tStart}\t{tEnd}\t{qName}\t1.0\n"
-                    except (ValueError, IndexError):
-                        continue
-
-        temp_bed = "temp_check.bed"
-        if temp_dir:
-            temp_bed = str(temp_dir / "temp_check.bed")
-
-        with open(temp_bed, "w") as f:
-            for record in parse_psl_lines():
-                f.write(record)
-        return BedTool(temp_bed).sort()
+        from baitUtils.coverage_analysis import PSLParser
+        return PSLParser.parse_psl_to_bed(psl_path, min_length, min_similarity, temp_dir, "temp_check.bed")
 
 
 class GenomeFileBuilder:
@@ -224,7 +194,7 @@ class ForcedOligoFilter:
             return set()
         try:
             with open(path) as f:
-                return {line.strip().upper() for line in f if line.strip()}
+                return {line.strip() for line in f if line.strip()}
         except Exception as e:
             logging.error(f"Error reading forced oligos: {e}")
             sys.exit(1)
