@@ -521,28 +521,20 @@ class ComparativeReportGenerator:
         if not self.differential_analyzer:
             return ""
         
-        # Perform statistical tests
+        alpha = self.differential_analyzer.significance_level
+        method = self.differential_analyzer.correction_method
         quality_tests = self.differential_analyzer.compare_quality_metrics(self.analyzer.oligo_sets)
         
-        html = """
+        html = f"""
     <div class="section">
-        <h2>📊 Statistical Analysis</h2>
-        <p>Statistical significance testing of differences between oligo sets:</p>
+        <h2>Statistical Analysis</h2>
+        <p>Paired tests across reference sequences (each reference is one observation).
+        P-values are adjusted for multiple comparisons ({method}); alpha = {alpha}.</p>
         
         """
         
-        for metric, test in quality_tests.items():
-            significance_class = "significant" if test.p_value <= 0.05 else "non-significant"
-            
-            html += f"""
-            <div class="statistical-result {significance_class}">
-                <h4>{metric.replace('_', ' ').title()}</h4>
-                <p><strong>Test:</strong> {test.test_name}</p>
-                <p><strong>P-value:</strong> {test.p_value:.4f} {test.significance_level}</p>
-                <p><strong>Effect Size:</strong> {test.effect_size:.3f}</p>
-                <p><strong>Interpretation:</strong> {test.interpretation}</p>
-            </div>
-            """
+        html += "".join(self._render_test(metric.replace('_', ' ').title(), test, alpha)
+                        for metric, test in quality_tests.items())
         
         # Add coverage distribution analysis for 2-set comparisons
         if len(self.analyzer.oligo_sets) == 2:
@@ -550,8 +542,9 @@ class ComparativeReportGenerator:
                 self.analyzer.oligo_sets[0], self.analyzer.oligo_sets[1]
             )
             
-            html += """
+            html += f"""
             <h3>Coverage Distribution Analysis</h3>
+            <p>Mean depth per {dist_comparison.window_size} bp window.</p>
             """
             
             for test_name, test in [
@@ -559,22 +552,36 @@ class ComparativeReportGenerator:
                 ("Mann-Whitney U Test", dist_comparison.mann_whitney_test),
                 ("Levene's Test", dist_comparison.levene_test)
             ]:
-                significance_class = "significant" if test.p_value <= 0.05 else "non-significant"
-                
-                html += f"""
-                <div class="statistical-result {significance_class}">
-                    <h4>{test_name}</h4>
-                    <p><strong>P-value:</strong> {test.p_value:.4f} {test.significance_level}</p>
-                    <p><strong>Effect Size:</strong> {test.effect_size:.3f}</p>
-                    <p><strong>Interpretation:</strong> {test.interpretation}</p>
-                </div>
-                """
+                html += self._render_test(test_name, test, alpha)
         
         html += """
     </div>
         """
         
         return html
+    
+    @staticmethod
+    def _render_test(title: str, test, alpha: float) -> str:
+        """Render one StatisticalTest as an HTML block."""
+        if not test.applicable:
+            return f"""
+            <div class="statistical-result non-significant">
+                <h4>{title}</h4>
+                <p><strong>Test:</strong> {test.test_name}</p>
+                <p><strong>Result:</strong> {test.interpretation}</p>
+            </div>
+            """
+        significance_class = "significant" if test.p_reported <= alpha else "non-significant"
+        adjusted = f" (adjusted {test.p_adjusted:.4f})" if test.p_adjusted is not None else ""
+        return f"""
+            <div class="statistical-result {significance_class}">
+                <h4>{title}</h4>
+                <p><strong>Test:</strong> {test.test_name} (n = {test.n})</p>
+                <p><strong>P-value:</strong> {test.p_value:.4f}{adjusted} {test.significance_level}</p>
+                <p><strong>Effect Size:</strong> {test.effect_size:.3f}</p>
+                <p><strong>Interpretation:</strong> {test.interpretation}</p>
+            </div>
+            """
     
     def _generate_gap_overlap_analysis(self, gap_analysis) -> str:
         """Generate gap overlap analysis section."""

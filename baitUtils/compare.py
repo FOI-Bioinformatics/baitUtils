@@ -174,7 +174,8 @@ def main(args):
     if args.enable_statistical_analysis:
         logging.info("Initializing statistical analysis...")
         differential_analyzer = DifferentialAnalyzer(
-            significance_level=args.significance_level
+            significance_level=args.significance_level,
+            correction_method=args.multiple_comparison_correction
         )
     
     # Generate visualizations

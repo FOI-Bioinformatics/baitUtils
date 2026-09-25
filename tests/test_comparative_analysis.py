@@ -238,117 +238,121 @@ class TestComparativeAnalyzer(unittest.TestCase):
 
 
 class TestDifferentialAnalyzer(unittest.TestCase):
-    """Test DifferentialAnalyzer class."""
+    """Test DifferentialAnalyzer on synthetic per-base coverage."""
+    
+    @staticmethod
+    def _make_set(name, arrays, per_ref, gaps=()):
+        return OligoSetResult(
+            name=name, file_path=f'{name}.fasta',
+            coverage_stats={'per_reference': per_ref, 'reference_length': sum(len(a) for a in arrays.values())},
+            gap_analysis={'total_gaps': len(gaps), 'gaps': [{'length': g} for g in gaps]},
+            quality_score=create_quality_score(0.7, 'B'),
+            coverage_arrays=arrays,
+        )
     
     def setUp(self):
-        """Set up test fixtures."""
-        self.analyzer = DifferentialAnalyzer(significance_level=0.05)
-        
-        # Mock oligo set results
-        self.mock_set1 = OligoSetResult(
-            name='Set1',
-            file_path='set1.fasta',
-            coverage_stats={
-                'coverage_breadth': 80.0,
-                'mean_depth': 8.0,
-                'coverage_gini': 0.3,
-                'mapping_efficiency': 85.0,
-                'reference_length': 10000
-            },
-            gap_analysis={'total_gaps': 30, 'gaps': []},
-            quality_score=create_quality_score(7.5, 'B')
-        )
-        
-        self.mock_set2 = OligoSetResult(
-            name='Set2',
-            file_path='set2.fasta',
-            coverage_stats={
-                'coverage_breadth': 90.0,
-                'mean_depth': 12.0,
-                'coverage_gini': 0.2,
-                'mapping_efficiency': 92.0,
-                'reference_length': 10000
-            },
-            gap_analysis={'total_gaps': 15, 'gaps': []},
-            quality_score=create_quality_score(8.8, 'A')
-        )
+        self.analyzer = DifferentialAnalyzer(significance_level=0.05, correction_method='fdr', window_size=100)
+        rng = np.random.default_rng(1)
+        # Set1: depth about 5, Set2: depth about 10, on three references of 2 kb
+        self.arrays1 = {f'chr{i}': rng.poisson(5, 2000).astype(np.int32) for i in range(3)}
+        self.arrays2 = {f'chr{i}': rng.poisson(10, 2000).astype(np.int32) for i in range(3)}
+        per_ref1 = {r: {'coverage_breadth': 80.0 + i, 'mean_depth': 5.0 + i, 'gaps': 10 + i}
+                    for i, r in enumerate(self.arrays1)}
+        per_ref2 = {r: {'coverage_breadth': 90.0 + i, 'mean_depth': 10.0 + i, 'gaps': 5 + i}
+                    for i, r in enumerate(self.arrays2)}
+        self.set1 = self._make_set('Set1', self.arrays1, per_ref1, gaps=[100, 250, 300, 800])
+        self.set2 = self._make_set('Set2', self.arrays2, per_ref2, gaps=[50, 60, 90])
     
     def test_init(self):
-        """Test analyzer initialization."""
         self.assertEqual(self.analyzer.significance_level, 0.05)
-        self.assertIn(0.05, self.analyzer.alpha_levels)
+        self.assertEqual(self.analyzer.correction_method, 'fdr')
+        with self.assertRaises(ValueError):
+            DifferentialAnalyzer(correction_method='bogus')
     
-    @patch('scipy.stats.kstest')
-    @patch('scipy.stats.mannwhitneyu')
-    @patch('scipy.stats.levene')
-    def test_compare_coverage_distributions(self, mock_levene, mock_mannwhitney, mock_kstest):
-        """Test coverage distribution comparison."""
-        # Mock statistical test results
-        mock_kstest.return_value = (0.2, 0.01)
-        mock_mannwhitney.return_value = (150, 0.03)
-        mock_levene.return_value = (2.5, 0.12)
-        
-        comparison = self.analyzer.compare_coverage_distributions(self.mock_set1, self.mock_set2)
-        
-        # Check comparison structure
+    def test_window_means_cover_every_base(self):
+        means = self.analyzer._window_means(self.set1)
+        self.assertEqual(len(means), 3 * 20)
+        self.assertAlmostEqual(float(np.mean(means)), float(np.mean(np.concatenate(list(self.arrays1.values())))), places=6)
+    
+    def test_compare_coverage_distributions_detects_depth_difference(self):
+        comparison = self.analyzer.compare_coverage_distributions(self.set1, self.set2)
         self.assertIsInstance(comparison, CoverageDistributionComparison)
-        self.assertEqual(comparison.set1_name, 'Set1')
-        self.assertEqual(comparison.set2_name, 'Set2')
-        
-        # Check test results
-        self.assertIsInstance(comparison.ks_test, StatisticalTest)
-        self.assertIsInstance(comparison.mann_whitney_test, StatisticalTest)
-        self.assertIsInstance(comparison.levene_test, StatisticalTest)
-        
-        # Check statistical significance
-        self.assertEqual(comparison.ks_test.significance_level, '**')
-        self.assertEqual(comparison.mann_whitney_test.significance_level, '*')
-        self.assertEqual(comparison.levene_test.significance_level, 'ns')
+        self.assertEqual(comparison.window_size, 100)
+        for test in (comparison.ks_test, comparison.mann_whitney_test):
+            self.assertTrue(test.applicable)
+            self.assertTrue(0.0 <= test.p_value <= 1.0)
+            self.assertIsNotNone(test.p_adjusted)
+            self.assertGreaterEqual(test.p_adjusted, test.p_value)
+            self.assertLess(test.p_adjusted, 0.001)
+            self.assertEqual(test.n, 120)
+        # Set1 has lower depth: rank-biserial correlation is negative
+        self.assertLess(comparison.mann_whitney_test.effect_size, 0)
+        self.assertEqual(comparison.summary_stats['Set1']['windows'], 60)
+        self.assertLess(comparison.summary_stats['Set1']['mean'], comparison.summary_stats['Set2']['mean'])
     
-    def test_compare_quality_metrics(self):
-        """Test quality metrics comparison."""
-        oligo_sets = [self.mock_set1, self.mock_set2]
-        
-        # Compare metrics
-        results = self.analyzer.compare_quality_metrics(oligo_sets)
-        
-        # Check results structure
-        expected_metrics = ['quality_score', 'coverage_breadth', 'mean_depth', 
-                           'mapping_efficiency', 'gap_count', 'coverage_gini']
-        
-        for metric in expected_metrics:
-            self.assertIn(metric, results)
-            self.assertIsInstance(results[metric], StatisticalTest)
+    def test_compare_coverage_distributions_is_deterministic(self):
+        first = self.analyzer.compare_coverage_distributions(self.set1, self.set2)
+        second = self.analyzer.compare_coverage_distributions(self.set1, self.set2)
+        self.assertEqual(first.ks_test.p_value, second.ks_test.p_value)
+    
+    def test_missing_arrays_raise(self):
+        bare = self._make_set('Bare', {}, {})
+        with self.assertRaises(ValueError):
+            self.analyzer.compare_coverage_distributions(bare, self.set2)
+    
+    def test_compare_quality_metrics_paired_wilcoxon(self):
+        results = self.analyzer.compare_quality_metrics([self.set1, self.set2])
+        self.assertEqual(set(results), {'coverage_breadth', 'mean_depth', 'gap_count'})
+        for test in results.values():
+            self.assertIsInstance(test, StatisticalTest)
+            self.assertTrue(test.applicable)
+            self.assertEqual(test.test_name, 'Wilcoxon signed-rank')
+            self.assertEqual(test.n, 3)
+            self.assertFalse(np.isnan(test.p_value))
+            self.assertIsNotNone(test.p_adjusted)
+    
+    def test_compare_quality_metrics_friedman_for_three_sets(self):
+        set3 = self._make_set('Set3', self.arrays2, {r: {'coverage_breadth': 70.0 - i, 'mean_depth': 3.0, 'gaps': 20}
+                                                     for i, r in enumerate(self.arrays2)})
+        results = self.analyzer.compare_quality_metrics([self.set1, self.set2, set3])
+        self.assertEqual(results['coverage_breadth'].test_name, 'Friedman')
+        self.assertTrue(results['coverage_breadth'].applicable)
+        self.assertFalse(results['mean_depth'].applicable is None)
+    
+    def test_not_applicable_with_single_reference(self):
+        one1 = self._make_set('A', {'chr0': self.arrays1['chr0']}, {'chr0': {'coverage_breadth': 80.0, 'mean_depth': 5.0, 'gaps': 3}})
+        one2 = self._make_set('B', {'chr0': self.arrays2['chr0']}, {'chr0': {'coverage_breadth': 90.0, 'mean_depth': 9.0, 'gaps': 1}})
+        results = self.analyzer.compare_quality_metrics([one1, one2])
+        for test in results.values():
+            self.assertFalse(test.applicable)
+            self.assertEqual(test.significance_level, 'n/a')
+            self.assertIn('Not applicable', test.interpretation)
+    
+    def test_identical_sets_not_applicable(self):
+        results = self.analyzer.compare_quality_metrics([self.set1, self.set1])
+        self.assertTrue(all(not t.applicable for t in results.values()))
+    
+    def test_gap_size_distribution(self):
+        results = self.analyzer.analyze_gap_patterns(self.set1, self.set2)
+        test = results['gap_size_distribution']
+        self.assertTrue(test.applicable)
+        self.assertEqual(test.n, 7)
+        self.assertGreater(test.effect_size, 0)  # Set1 gaps are larger: positive rank-biserial r
     
     def test_multiple_comparison_correction(self):
-        """Test multiple comparison corrections."""
         p_values = [0.01, 0.03, 0.08, 0.15, 0.25]
-        
-        # Test Bonferroni correction
         bonferroni = self.analyzer.multiple_comparison_correction(p_values, 'bonferroni')
-        self.assertEqual(len(bonferroni), len(p_values))
-        self.assertTrue(all(corr >= orig for corr, orig in zip(bonferroni, p_values)))
-        
-        # Test FDR correction
-        fdr = self.analyzer.multiple_comparison_correction(p_values, 'fdr')
-        self.assertEqual(len(fdr), len(p_values))
-        
-        # Test Holm correction
+        self.assertEqual(bonferroni, [0.05, 0.15, 0.4, 0.75, 1.0])
         holm = self.analyzer.multiple_comparison_correction(p_values, 'holm')
-        self.assertEqual(len(holm), len(p_values))
+        self.assertEqual([round(x, 4) for x in holm], [0.05, 0.12, 0.24, 0.3, 0.3])
+        fdr = self.analyzer.multiple_comparison_correction(p_values, 'fdr')
+        self.assertEqual([round(x, 4) for x in fdr], [0.05, 0.075, 0.1333, 0.1875, 0.25])
+        self.assertEqual(self.analyzer.multiple_comparison_correction(p_values, 'none'), p_values)
+        self.assertEqual(self.analyzer.multiple_comparison_correction([]), [])
     
     def test_significance_level_determination(self):
-        """Test significance level assignment."""
-        test_cases = [
-            (0.0005, '***'),
-            (0.005, '**'),
-            (0.03, '*'),
-            (0.1, 'ns')
-        ]
-        
-        for p_value, expected in test_cases:
-            result = self.analyzer._get_significance_level(p_value)
-            self.assertEqual(result, expected)
+        for p_value, expected in [(0.0005, '***'), (0.005, '**'), (0.03, '*'), (0.1, 'ns'), (float('nan'), 'n/a')]:
+            self.assertEqual(self.analyzer._get_significance_level(p_value), expected)
 
 
 class TestComparativeVisualizer(unittest.TestCase):

@@ -81,7 +81,10 @@ class TestCompare:
         run_cli(["compare", "-r", dataset["reference"], "-o", out,
                  "--sets", f"A:{dataset['baits']}", f"B:{dataset['baits']}"])
         assert (out / "comparison_matrix.csv").exists()
-        assert (out / "comparative_analysis_report.html").exists()
+        report = (out / "comparative_analysis_report.html").read_text()
+        assert "P-value:</strong> nan" not in report
+        assert "Effect Size:</strong> nan" not in report
+        assert "Not applicable" in report  # identical sets: paired tests cannot run
 
 
 @pytest.mark.skipif(not _has_bedtools(), reason="requires pybedtools and bedtools")
