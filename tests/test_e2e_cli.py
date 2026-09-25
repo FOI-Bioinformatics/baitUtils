@@ -33,7 +33,6 @@ class TestStats:
         assert (out / "summary.txt").exists()
         assert (out / "filtered_sequences.fasta").read_text().count(">") == len(df)
 
-    @pytest.mark.xfail(strict=True, reason="Tm is NA for every sequence (salt given as string)")
     def test_stats_reports_melting_temperature(self, dataset, tmp_path, run_cli):
         out = tmp_path / "stats"
         run_cli(["stats", "-i", dataset["baits"], "-o", out])

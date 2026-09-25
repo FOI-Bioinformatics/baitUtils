@@ -48,8 +48,6 @@ class SequenceFilter:
         self.min_tm = min_tm
         self.max_tm = max_tm
         self.max_mask = max_mask
-        
-        self.analyzer = SequenceAnalyzer()
     
     def passes_filters(self, sequence: str, stats: Dict[str, Any]) -> bool:
         """
@@ -94,15 +92,25 @@ class SequenceFilter:
 class SequenceStatsCalculator:
     """Main class for calculating sequence statistics."""
     
-    def __init__(self, num_processes: int = 1):
+    def __init__(self, num_processes: int = 1, na: float = 50.0, dnac1: float = 250.0,
+                 dnac2: float = 250.0, hybridization_temp: float = 65.0):
         """
         Initialize statistics calculator.
         
         Args:
             num_processes: Number of processes for parallel processing
+            na: Monovalent salt concentration for Tm (mM)
+            dnac1: Concentration of the more abundant strand (nM)
+            dnac2: Concentration of the less abundant strand (nM)
+            hybridization_temp: Temperature for secondary structure prediction (C)
         """
         self.num_processes = num_processes
-        self.analyzer = SequenceAnalyzer()
+        self.analyzer = SequenceAnalyzer(
+            na_equivalent=na,
+            dnac1_equivalent=dnac1,
+            dnac2_equivalent=dnac2,
+            hybridization_temp=hybridization_temp,
+        )
     
     def process_sequences(self, input_file: str, seq_filter: Optional[SequenceFilter] = None,
                          sample_size: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -317,6 +325,16 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help='Maximum melting temperature (°C)')
     
     # Other filters
+    # Thermodynamic parameters
+    parser.add_argument('--na', type=float, default=50.0,
+                       help='Monovalent salt concentration for Tm in mM (default: 50)')
+    parser.add_argument('--dnac1', type=float, default=250.0,
+                       help='Concentration of the more abundant strand in nM (default: 250)')
+    parser.add_argument('--dnac2', type=float, default=250.0,
+                       help='Concentration of the less abundant strand in nM (default: 250)')
+    parser.add_argument('--hyb-temp', dest='hyb_temp', type=float, default=65.0,
+                       help='Temperature in C for secondary structure prediction (default: 65)')
+    
     parser.add_argument('-K', '--maxmask', type=float,
                        help='Maximum percentage of masked (lowercase) bases')
     
@@ -358,7 +376,13 @@ def main(args) -> None:
     )
     
     # Initialize calculator
-    calculator = SequenceStatsCalculator(num_processes=args.processes)
+    calculator = SequenceStatsCalculator(
+        num_processes=args.processes,
+        na=args.na,
+        dnac1=args.dnac1,
+        dnac2=args.dnac2,
+        hybridization_temp=args.hyb_temp,
+    )
     
     # Process sequences
     logging.info(f"Processing sequences from {args.input}")
