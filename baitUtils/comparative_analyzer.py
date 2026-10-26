@@ -159,7 +159,8 @@ class ComparativeAnalyzer:
             min_gap_size=self.min_gap_size,
             extend_bp=self.gap_extend,
             coverage_arrays=coverage_analyzer.coverage_arrays,
-            min_coverage=self.min_coverage
+            min_coverage=self.min_coverage,
+            reference_sequences=coverage_analyzer.sequences()
         )
         gap_analysis = gap_analyzer.analyze()
         
@@ -170,7 +171,8 @@ class ComparativeAnalyzer:
                 coverage_data=coverage_stats,
                 window_size=self.reference_analysis_window,
                 coverage_arrays=coverage_analyzer.coverage_arrays,
-                min_coverage=self.min_coverage
+                min_coverage=self.min_coverage,
+                reference_sequences=coverage_analyzer.sequences()
             )
             self.reference_analysis = ref_analyzer.analyze()
 

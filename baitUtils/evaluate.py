@@ -247,7 +247,8 @@ def main(args):
             min_gap_size=args.min_gap_size,
             extend_bp=args.gap_extend,
             coverage_arrays=analyzer.coverage_arrays,
-            min_coverage=args.min_coverage
+            min_coverage=args.min_coverage,
+            reference_sequences=analyzer.sequences()
         )
         
         gap_analysis = gap_analyzer.analyze()
@@ -271,7 +272,8 @@ def main(args):
             coverage_data=coverage_stats,
             window_size=args.reference_analysis_window,
             coverage_arrays=analyzer.coverage_arrays,
-            min_coverage=args.min_coverage
+            min_coverage=args.min_coverage,
+            reference_sequences=analyzer.sequences()
         )
         reference_analysis = ref_analyzer.analyze()
 

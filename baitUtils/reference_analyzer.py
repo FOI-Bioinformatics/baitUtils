@@ -53,6 +53,7 @@ class ReferenceAnalyzer:
         coverage_arrays: Optional[Dict[str, np.ndarray]] = None,
         min_coverage: float = 1.0,
         max_challenging_windows: int = 200,
+        reference_sequences: Optional[Dict[str, str]] = None,
     ):
         """
         Args:
@@ -63,6 +64,9 @@ class ReferenceAnalyzer:
             coverage_arrays: Per-base depth arrays keyed by reference id
             min_coverage: Depth at which a base counts as covered
             max_challenging_windows: Cap on reported challenging windows per reference
+            reference_sequences: Sequences already loaded (for example by
+                CoverageAnalyzer.sequences()); when given, reference_file is
+                not read again
         """
         self.reference_file = Path(reference_file)
         self.coverage_data = coverage_data or {}
@@ -73,7 +77,7 @@ class ReferenceAnalyzer:
         self.min_coverage = min_coverage
         self.max_challenging_windows = max_challenging_windows
 
-        self.reference_sequences: Dict[str, str] = {}
+        self.reference_sequences: Dict[str, str] = dict(reference_sequences) if reference_sequences else {}
         self.sequence_features: Dict[str, Dict[str, float]] = {}
         self.window_features: Dict[str, Dict[str, np.ndarray]] = {}
         self.coverage_correlations: Dict[str, Any] = {}
@@ -99,6 +103,9 @@ class ReferenceAnalyzer:
         }
 
     def _load_reference_sequences(self) -> None:
+        if self.reference_sequences:
+            logging.info(f"Using {len(self.reference_sequences)} reference sequences already loaded")
+            return
         with open(self.reference_file) as handle:
             for record in SeqIO.parse(handle, "fasta"):
                 self.reference_sequences[record.id] = str(record.seq)

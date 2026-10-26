@@ -203,6 +203,18 @@ class PlotGenerator:
             logging.error("At least two columns are required for PCA.")
             return
         
+        # Rows with a missing value in any column cannot be scored; drop them
+        # together with their colour so that rows stay aligned
+        keep = list(columns) + ([color_col] if color_col and color_col not in columns else [])
+        complete = df[keep].dropna().reset_index(drop=True)
+        dropped = len(df) - len(complete)
+        if dropped:
+            logging.warning(f"PCA: dropped {dropped} row(s) with missing values")
+        if len(complete) < 2:
+            logging.error("PCA needs at least two complete rows.")
+            return
+        df = complete
+        
         # Standardize the data
         scaler = StandardScaler()
         scaled_data = scaler.fit_transform(df[columns])

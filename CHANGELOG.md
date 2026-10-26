@@ -2,8 +2,26 @@
 
 ## Unreleased
 
-Phases 1 to 3 of the remediation plan in `docs/code_audit_2026-10.md`
-(finding numbers below refer to that report).
+The remediation plan in `docs/code_audit_2026-10.md` (finding numbers below
+refer to that report).
+
+### Changed (performance and tests)
+
+- Per-reference strand counts are gathered in one pass over the hits
+  instead of one pass per reference (F-29).
+- `evaluate` and `compare` read the reference FASTA once:
+  `CoverageAnalyzer.sequences()` hands the loaded sequences to `GapAnalyzer`
+  and `ReferenceAnalyzer` (both accept `reference_sequences`), and the gap
+  analysis upper-cases only the gap slices it characterises instead of a
+  copy of the whole reference (F-30).
+- `plot --plot-type pca` drops rows with missing values (with a warning)
+  instead of aborting (F-39).
+- Test fixtures: the fake pblat and minimap2 only emit hits for the baits
+  in the query FASTA, and the dataset has a second bait set
+  (`baits_subset`), so `compare` is tested with sets that differ and the
+  statistical tests, the Friedman path and the report's p-values are
+  exercised end to end. The gap filling algorithm, the fake minimap2 `map`
+  run and the plot command's PCA and SVG paths have tests.
 
 ### Changed (quality score and packaging)
 

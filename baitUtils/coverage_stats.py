@@ -197,6 +197,7 @@ class CoverageAnalyzer:
         
         # Basic mapping statistics
         unique_queries = len(set(m['query_name'] for m in self.mappings))
+        total_oligos = self._count_total_oligos()
         self.stats.update({
             'total_mappings': len(self.mappings),
             'strand': self.strand,
@@ -205,8 +206,8 @@ class CoverageAnalyzer:
                 '-': sum(1 for m in self.mappings if m.get('strand') == '-'),
             },
             'mapped_oligos': unique_queries,
-            'total_oligos': self._count_total_oligos(),
-            'mapping_efficiency': (unique_queries / max(1, self._count_total_oligos())) * 100
+            'total_oligos': total_oligos,
+            'mapping_efficiency': (unique_queries / max(1, total_oligos)) * 100
         })
         
         # Reference statistics
@@ -229,6 +230,13 @@ class CoverageAnalyzer:
         self._calculate_per_reference_statistics()
         
         logging.info("Comprehensive statistics calculated")
+    
+    def sequences(self) -> Dict[str, str]:
+        """
+        The reference sequences as loaded (case preserved), keyed by id, for
+        the gap and reference analyzers so that the FASTA is read once.
+        """
+        return {ref_id: ref['sequence'] for ref_id, ref in self.reference_sequences.items()}
     
     def _count_total_oligos(self) -> int:
         """Count oligos in the input FASTA, or fall back to the mapped count."""
@@ -348,6 +356,13 @@ class CoverageAnalyzer:
         """Calculate statistics for each reference sequence."""
         per_ref_stats = {}
         
+        # Hit counts per reference and strand in one pass over the mappings
+        strand_hits = {ref_id: {'+': 0, '-': 0} for ref_id in self.coverage_arrays}
+        for m in self.mappings:
+            counts = strand_hits.get(m['target_name'])
+            if counts is not None and m.get('strand') in counts:
+                counts[m['strand']] += 1
+        
         for ref_id, cov_array in self.coverage_arrays.items():
             ref_length = len(cov_array)
             covered = cov_array >= self.min_coverage
@@ -360,8 +375,8 @@ class CoverageAnalyzer:
                 'length': ref_length,
                 'n_bases': n_bases,
                 'coverage_breadth_non_n': (int(np.sum(covered & ~n_mask)) / assessable * 100.0) if assessable > 0 else 0.0,
-                'plus_hits': sum(1 for m in self.mappings if m['target_name'] == ref_id and m.get('strand') == '+'),
-                'minus_hits': sum(1 for m in self.mappings if m['target_name'] == ref_id and m.get('strand') == '-'),
+                'plus_hits': strand_hits[ref_id]['+'],
+                'minus_hits': strand_hits[ref_id]['-'],
                 'mean_depth': float(np.mean(cov_array)),
                 'max_depth': int(np.max(cov_array)),
                 'covered_bases': int(covered_bases),
