@@ -2,8 +2,72 @@
 
 ## Unreleased
 
-Phase 1 of the remediation plan in `docs/code_audit_2026-10.md` (finding
-numbers below refer to that report).
+Phases 1 and 2 of the remediation plan in `docs/code_audit_2026-10.md`
+(finding numbers below refer to that report).
+
+### Changed (command line)
+
+- Every option is spelled in kebab-case. The previous spellings still work
+  as hidden aliases, so existing scripts keep running, but the help text,
+  the documentation and the configuration-file keys use the new names:
+  - `stats`: `--no-ns`, `--min-gc`, `--max-gc`, `--min-tm`, `--max-tm`,
+    `--max-mask`, `--threads` (was `-p/--processes`; `-p` remains),
+    `-o/--output` (was `--outdir`; the configuration key stays `outdir`).
+    Configuration keys: `no_ns`, `min_gc`, `max_gc`, `min_tm`, `max_tm`,
+    `max_mask`, `threads`.
+  - `plot`: `--plot-type`, `-o/--output`.
+  - `map`: `-r/--reference` (was `-q/--query`), `--threads` (was `-X`),
+    `--min-match`, `--min-score`, `--min-identity`, `--filter-identity`,
+    `--min-match-count` (were camelCase), `-o/--output`. Configuration keys
+    are the snake_case forms (`min_identity`, `filter_identity`, ...).
+  - `check` and `fill`: `--alignments` (`--psl` remains an alias),
+    `--forced-oligos`, `--min-coverage`, `--min-length`, `--min-identity`
+    (was `--min_similarity`), `--uncovered-length-cutoff`, `--coverage-out`,
+    `--longest-uncovered-out`, `--uncovered-fasta`, `--n-split-fasta`,
+    `--extend-region`, `--min-oligo-length`, `--temp-dir`; `fill` also
+    `--spacing-distance`, `--min-contribution`, `--max-passes`,
+    `--max-oligos-per-pass`, `--stall-rounds`. Configuration key for the
+    alignment file: `alignments` (was `psl`); for identity: `min_identity`.
+  - Every command accepts `-v/--verbose`, `--quiet` and `--log-level`
+    (`-l/--log` remain aliases of `--verbose` where they existed), so
+    `common.log_level` in a configuration file applies everywhere (F-9).
+- Defaults aligned across commands (F-33): `check --min-coverage` is 1
+  (was 10); `check` and `fill --min-identity` are 90 (was 95), the values
+  `evaluate` and `map` use. `check --longest-uncovered-out` no longer
+  defaults to a file in the working directory (F-64).
+- `--config` is parsed with argparse, so `--config=file.json` works, the
+  option may follow the command, and a missing file name is a usage error
+  (F-8). Sections that are not commands and `common` keys that no command
+  has are reported; a `common` key is applied silently to the commands
+  that have it (F-9).
+- Numeric options are validated by the parser (`--threads` at least 1,
+  `--min-length` not negative, `--min-gap-size`, `--plot-dpi` and the
+  analysis window at least 1).
+
+### Added
+
+- `evaluate` and `compare`: `--max-hits` (off-target filter as in `map`),
+  `--temp-dir`; `compare`: `--min-gap-size`, `--gap-extend` and
+  `--reference-analysis-window`, which were fixed at the `evaluate`
+  defaults. `evaluate` writes the per-bait hit table (`hits.tsv`), a
+  run-length `data/coverage.bedgraph` and `data/gap_regions.bed`, and with
+  `--per-position-coverage` the per-base CSV; the report's data links point
+  to these files (F-17).
+- `map` warns when a pblat-only option (`--min-identity`, `--min-score`,
+  `--min-match`) is given with `--mapper minimap2`, and when
+  `--minimap2-preset` is given with pblat (also in `evaluate` and
+  `compare`); the `--filter-identity >= --min-identity` check applies to
+  pblat only (F-26). The filtered alignment file keeps the mapper's format
+  (`-mapping_filtered.paf` for minimap2), and `--keep-intermediates` keeps
+  the mapper output under its own name (F-25).
+- `fill` warns that `--min-coverage` above 1 cannot be reached by stacking
+  baits because of the spacing rule (F-31).
+- `evaluate` always computes the reference analysis and the quality score;
+  `--no-html-report`, `--no-interactive-plots` and `--no-benchmarking` skip
+  only those outputs (F-18).
+- `pytest.ini` is read (its section header was the setup.cfg form) and
+  CLAUDE.md and CONTRIBUTING.md describe the pytest suite (F-34, F-35,
+  F-36).
 
 ### Fixed
 

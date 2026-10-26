@@ -51,7 +51,8 @@ class CoverageAnalyzer:
         min_identity: float = 90.0,
         min_length: int = 100,
         oligos_file: Optional[Path] = None,
-        strand: str = "both"
+        strand: str = "both",
+        max_hits: Optional[int] = None,
     ):
         """
         Initialize the coverage analyzer.
@@ -64,11 +65,15 @@ class CoverageAnalyzer:
             min_identity: Minimum mapping identity to consider
             min_length: Minimum mapping length to consider
             oligos_file: Input oligo FASTA; needed for a true mapping efficiency
+            strand: 'both', 'plus' or 'minus'; hits on the other strand are dropped
+            max_hits: Baits with more passing hits than this are treated as
+                unmapped (off-target filter); None keeps every bait
         """
         self.psl_file = Path(psl_file)
         self.reference_file = Path(reference_file)
         self.oligos_file = Path(oligos_file) if oligos_file else None
         self.strand = strand
+        self.max_hits = max_hits
         self.min_coverage = min_coverage
         self.target_coverage = target_coverage
         self.min_identity = min_identity
@@ -148,6 +153,15 @@ class CoverageAnalyzer:
             })
         self.hit_table = build_hit_table(kept_hits)
         logging.info(f"Parsed {len(self.mappings)} valid mappings from {total} total lines")
+        
+        # Off-target filter: baits with too many passing hits count as unmapped
+        if self.max_hits is not None and len(self.hit_table):
+            multi = set(self.hit_table.loc[self.hit_table['n_hits'] > self.max_hits, 'oligo_id'])
+            self.hit_table['multi_mapping_excluded'] = self.hit_table['oligo_id'].isin(multi)
+            if multi:
+                self.mappings = [m for m in self.mappings if m['query_name'] not in multi]
+                logging.info(f"Excluded {len(multi)} baits with more than {self.max_hits} hits "
+                             f"({len(self.mappings)} mappings remain)")
     
     def _compute_coverage_arrays(self) -> None:
         """Compute coverage depth arrays for each reference sequence."""
@@ -363,12 +377,13 @@ class CoverageAnalyzer:
         """Count number of coverage gaps in a sequence."""
         return len(find_gap_intervals(coverage_array, self.min_coverage))
     
-    def export_coverage_data(self, output_dir: Path):
+    def export_coverage_data(self, output_dir: Path, per_position: bool = True):
         """
-        Export per-position coverage (CSV, 1-based positions), a run-length
-        bedGraph of depth (0-based half-open, compact for large references)
-        and gap regions in BED format. Returns the per-position DataFrame and
-        a DataFrame of gap regions.
+        Export a run-length bedGraph of depth (0-based half-open, compact for
+        large references), gap regions in BED format and, with per_position,
+        the per-position coverage as CSV (1-based positions; one row per
+        base, so large for long references). Returns the per-position
+        DataFrame (empty when not requested) and a DataFrame of gap regions.
         """
         data_dir = Path(output_dir) / "data"
         data_dir.mkdir(exist_ok=True)
@@ -378,11 +393,12 @@ class CoverageAnalyzer:
         with open(bedgraph_file, "w") as bg:
             for ref_id, cov_array in self.coverage_arrays.items():
                 cov_array = np.asarray(cov_array)
-                frames.append(pd.DataFrame({
-                    'chromosome': np.repeat(ref_id, cov_array.size),
-                    'position': np.arange(1, cov_array.size + 1, dtype=np.int64),
-                    'coverage': cov_array,
-                }))
+                if per_position:
+                    frames.append(pd.DataFrame({
+                        'chromosome': np.repeat(ref_id, cov_array.size),
+                        'position': np.arange(1, cov_array.size + 1, dtype=np.int64),
+                        'coverage': cov_array,
+                    }))
                 if cov_array.size:
                     change = np.flatnonzero(np.diff(cov_array)) + 1
                     starts = np.concatenate(([0], change))
@@ -392,20 +408,22 @@ class CoverageAnalyzer:
         
         coverage_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
             columns=['chromosome', 'position', 'coverage'])
-        coverage_file = data_dir / "coverage_per_position.csv"
-        coverage_df.to_csv(coverage_file, index=False)
-        logging.info(f"Coverage data exported to {coverage_file} and {bedgraph_file}")
+        if per_position:
+            coverage_file = data_dir / "coverage_per_position.csv"
+            coverage_df.to_csv(coverage_file, index=False)
+            logging.info(f"Coverage data exported to {coverage_file} and {bedgraph_file}")
+        else:
+            logging.info(f"Coverage depth exported to {bedgraph_file}")
         
         gap_regions = []
         for ref_id, cov_array in self.coverage_arrays.items():
             for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
                 gap_regions.append({'chromosome': ref_id, 'start': gap_start, 'end': gap_end,
                                     'length': gap_end - gap_start})
-        if gap_regions:
-            gap_file = data_dir / "gap_regions.bed"
-            with open(gap_file, 'w') as f:
-                for gap in gap_regions:
-                    f.write(f"{gap['chromosome']}\t{gap['start']}\t{gap['end']}\n")
-            logging.info(f"Gap regions exported to {gap_file}")
+        gap_file = data_dir / "gap_regions.bed"
+        with open(gap_file, 'w') as f:
+            for gap in gap_regions:
+                f.write(f"{gap['chromosome']}\t{gap['start']}\t{gap['end']}\n")
+        logging.info(f"{len(gap_regions)} gap regions exported to {gap_file}")
         
         return coverage_df, pd.DataFrame(gap_regions)

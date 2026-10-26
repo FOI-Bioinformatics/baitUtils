@@ -15,6 +15,7 @@ import sys
 import pandas as pd
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import add_argument, add_logging_arguments, logging_kwargs
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.plotting_utils import StatisticalPlotter, validate_columns
 
@@ -81,7 +82,7 @@ class PlotCommandProcessor:
             args: Parsed command-line arguments
         """
         # Set up logging
-        self._setup_logging(args.log)
+        ensure_logging(**logging_kwargs(args))
         
         # Create output directory
         self.file_handler.create_output_directory(args.outdir)
@@ -125,39 +126,36 @@ class PlotCommandProcessor:
             df[color_col] = df[color_col].astype('category')
 
 
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for statistical plotting."""
-    parser.add_argument('--version', action='version', 
-                       version=f"baitUtils statistical-plots {__version__}")
+    parser.add_argument('--version', action='version', version=f"baitUtils plot {__version__}")
     
     # Input/Output
-    parser.add_argument('-i', '--input', required=True,
-                       help='Input parameters file (can be .txt or .txt.gz)')
-    parser.add_argument('-o', '--outdir', default='plots',
-                       help='Output directory for plots (default: plots)')
+    add_argument(parser, '-i', '--input', required=True,
+                 help='Statistics table written by the stats command (.tsv or .tsv.gz)')
+    add_argument(parser, '-o', '--output', dest='outdir', default='plots', aliases=('--outdir',),
+                 help='Output directory for plots (default: plots)')
     
     # Plot configuration
     parser.add_argument('--columns', nargs='+',
-                       help='List of columns to plot. If not specified, '
-                            'all numeric columns will be plotted.')
-    parser.add_argument('--plot_type', nargs='+',
-                       choices=['histogram', 'boxplot', 'scatterplot', 
-                               'violinplot', 'densityplot', 'heatmap', 
-                               'pairplot', 'swarmplot', 'jointplot', 
-                               'boxenplot', 'pca'],
-                       default=['histogram'],
-                       help='Type of plots to generate (default: histogram)')
+                        help='List of columns to plot. If not specified, '
+                             'all numeric columns will be plotted.')
+    add_argument(parser, '--plot-type', dest='plot_type', nargs='+', aliases=('--plot_type',),
+                 choices=['histogram', 'boxplot', 'scatterplot',
+                          'violinplot', 'densityplot', 'heatmap',
+                          'pairplot', 'swarmplot', 'jointplot',
+                          'boxenplot', 'pca'],
+                 default=['histogram'],
+                 help='Type of plots to generate (default: histogram)')
     parser.add_argument('--color', choices=['kept'],
-                       help='Column to use for colouring the plots '
-                            '(the kept flag written by the stats command).')
-    parser.add_argument('--format', choices=['png', 'pdf', 'svg'], 
-                       default='png',
-                       help='Output file format for the plots (default: png)')
+                        help='Column to use for colouring the plots '
+                             '(the kept flag written by the stats command).')
+    parser.add_argument('--format', choices=['png', 'pdf', 'svg'],
+                        default='png',
+                        help='Output file format for the plots (default: png)')
     
-    # Logging
-    parser.add_argument('-l', '--log', action='store_true',
-                       help='Enable detailed logging')
-
+    add_logging_arguments(parser, verbose_aliases=('-l', '--log'))
 
 def main(args) -> None:
     """Main function for statistical plotting command."""

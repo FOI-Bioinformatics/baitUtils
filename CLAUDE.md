@@ -30,7 +30,8 @@ The project follows a modular, well-factored architecture with clear separation 
 - **`sequence_features.py`**: vectorized sequence features (GC, entropy, homopolymers, duplicated k-mers, window features and window coverage)
 - **`bedtools_support.py`**: dependency check for the commands that need pybedtools and bedtools
 - **`json_export.py`**: JSON writer, tool version record and argument record used by evaluate and compare
-- **`config.py`**: JSON configuration file applied as argparse defaults (`--config` on the main parser)
+- **`config.py`**: JSON configuration file applied as argparse defaults (`--config` anywhere on the command line)
+- **`cli_utils.py`**: `add_argument` with hidden aliases for the pre-0.6 option spellings, the shared logging options, argparse value types
 - **`logging_utils.py`**: single logging configuration; the dispatcher configures it, command modules call `ensure_logging`
 - **`templates/`**: CSS and JavaScript for the HTML reports
 - **`gap_filling_algorithm.py`**: Multi-pass greedy selection algorithms
@@ -68,25 +69,19 @@ pip install -e .
 ### Testing
 ```bash
 # Run all tests (pytest; fixtures in tests/conftest.py build a small dataset
-# with hand-derived expected values and a fake pblat on PATH)
+# with hand-derived expected values and a fake pblat on PATH). The suite
+# uses pytest fixtures, so unittest discovery runs only part of it.
 python -m pytest tests/
 
 # Tests that need pblat, bedtools and ViennaRNA skip unless the tools are on PATH
 # conda create -n baitutils-test -c conda-forge -c bioconda python=3.12 pybedtools bedtools pblat minimap2 viennarna
 # PATH=$CONDA_PREFIX/bin:$PATH python -m pytest tests/
 
-# Run all tests
-python -m unittest discover tests/
-
 # Run specific test files
-python -m unittest tests.test_evaluate
-python -m unittest tests.test_comparative_analysis
-
-# Run tests with verbose output
-python -m unittest discover tests/ -v
+python -m pytest tests/test_evaluate.py tests/test_comparative_analysis.py
 
 # Run tests with coverage (if coverage.py installed)
-coverage run -m unittest discover tests/
+coverage run -m pytest tests/
 coverage report
 ```
 
@@ -126,7 +121,7 @@ Each command follows a consistent pattern:
 - **Bioinformatics**: biopython for sequence handling
 - **Interactive plotting**: plotly for enhanced visualizations
 - **Optional external tools**: 
-  - ViennaRNA (for RNA folding/MFE calculations)
+  - ViennaRNA (for hairpin and self-dimer free energies)
   - pblat (for sequence mapping)
   - bedtools (for genomic interval operations)
 
@@ -141,7 +136,7 @@ Each command follows a consistent pattern:
 Core sequence analysis functionality:
 - GC content calculation using BioPython
 - Melting temperature via BioPython's MeltingTemp module
-- Minimum Free Energy (MFE) using ViennaRNA (optional)
+- Hairpin and self-dimer free energies with ViennaRNA DNA parameters at the hybridization temperature (optional)
 - Shannon entropy and sequence complexity metrics
 - Homopolymer run analysis
 - Masked base counting
@@ -183,7 +178,7 @@ Multi-pass optimization system:
 
 ## Testing Strategy
 
-The codebase uses unittest with comprehensive mocking for external dependencies:
+The suite runs under pytest (tests/conftest.py provides a small dataset with hand-derived expected values and a fake pblat):
 
 ### Test Coverage Areas
 - **Core algorithms**: Sequence analysis functions, statistics calculations
@@ -209,7 +204,7 @@ baitUtils evaluate -i oligos.fasta -r reference.fasta -o coverage_report/
 # Advanced analysis with custom parameters
 baitUtils evaluate -i oligos.fasta -r reference.fasta -o results/ \
   --min-identity 95 --target-coverage 10 --threads 4 \
-  --plot-format pdf --enable-html-report
+  --plot-format pdf --offline-plots
 ```
 
 ### Architecture
@@ -230,7 +225,7 @@ baitUtils compare -r reference.fasta -o comparison_report/ \
 # With statistical analysis
 baitUtils compare -r reference.fasta -o results/ \
   --sets "Set1:design1.fasta" "Set2:design2.fasta" \
-  --enable-statistical-analysis --significance-level 0.01
+  --significance-level 0.01 --multiple-comparison-correction holm
 ```
 
 ### Comparative Framework

@@ -61,7 +61,9 @@ class ComparativeAnalyzer:
                  min_identity: float = 90.0, min_length: int = 100,
                  min_coverage: float = 1.0, target_coverage: float = 10.0,
                  threads: int = 1, mapper: str = 'pblat', minimap2_preset: str = 'sr',
-                 strand: str = 'both'):
+                 strand: str = 'both', max_hits: Optional[int] = None,
+                 min_gap_size: int = 100, gap_extend: int = 0,
+                 reference_analysis_window: int = 1000, temp_dir: Optional[Path] = None):
         """
         Initialize comparative analyzer.
         
@@ -72,6 +74,12 @@ class ComparativeAnalyzer:
             min_length: Minimum mapping length
             min_coverage: Minimum coverage depth threshold
             target_coverage: Target coverage depth
+            threads, mapper, minimap2_preset: mapping settings
+            strand: hits counted ('both', 'plus', 'minus')
+            max_hits: off-target filter, baits with more hits count as unmapped
+            min_gap_size, gap_extend: gap analysis settings
+            reference_analysis_window: window size of the reference analysis
+            temp_dir: parent directory for the mapping temporary directories
         """
         self.reference_file = reference_file
         self.output_dir = Path(output_dir)
@@ -83,6 +91,11 @@ class ComparativeAnalyzer:
         self.mapper = mapper
         self.minimap2_preset = minimap2_preset
         self.strand = strand
+        self.max_hits = max_hits
+        self.min_gap_size = min_gap_size
+        self.gap_extend = gap_extend
+        self.reference_analysis_window = reference_analysis_window
+        self.temp_dir = str(temp_dir) if temp_dir else None
         
         self.oligo_sets: List[OligoSetResult] = []
         self.reference_analysis: Optional[Dict] = None
@@ -105,7 +118,7 @@ class ComparativeAnalyzer:
         
         # Perform mapping if PSL file not provided
         if psl_file is None:
-            with tempfile.TemporaryDirectory() as temp_dir:
+            with tempfile.TemporaryDirectory(prefix="baitUtils_compare_", dir=self.temp_dir) as temp_dir:
                 psl_file = self._perform_mapping(oligo_file, Path(temp_dir))
                 
                 # Analyze this oligo set
@@ -114,7 +127,7 @@ class ComparativeAnalyzer:
             result = self._analyze_oligo_set(name, oligo_file, psl_file)
         
         self.oligo_sets.append(result)
-        logging.info(f"Added oligo set '{name}' with quality score {result.quality_score.overall_score:.1f}")
+        logging.info(f"Added oligo set '{name}' with quality score {result.quality_score.overall_score:.2f}")
     
     def _perform_mapping(self, oligo_file: str, temp_dir: Path) -> str:
         """Map one oligo set with the chosen mapper; returns the PSL or PAF path."""
@@ -134,7 +147,8 @@ class ComparativeAnalyzer:
             min_identity=self.min_identity,
             min_length=self.min_length,
             oligos_file=oligo_file,
-            strand=self.strand
+            strand=self.strand,
+            max_hits=self.max_hits
         )
         coverage_stats = coverage_analyzer.analyze()
         
@@ -142,6 +156,8 @@ class ComparativeAnalyzer:
         gap_analyzer = GapAnalyzer(
             coverage_data=coverage_stats,
             reference_file=self.reference_file,
+            min_gap_size=self.min_gap_size,
+            extend_bp=self.gap_extend,
             coverage_arrays=coverage_analyzer.coverage_arrays,
             min_coverage=self.min_coverage
         )
@@ -152,6 +168,7 @@ class ComparativeAnalyzer:
             ref_analyzer = ReferenceAnalyzer(
                 reference_file=self.reference_file,
                 coverage_data=coverage_stats,
+                window_size=self.reference_analysis_window,
                 coverage_arrays=coverage_analyzer.coverage_arrays,
                 min_coverage=self.min_coverage
             )

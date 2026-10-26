@@ -634,19 +634,19 @@ class InteractiveReportGenerator:
             <h2>Data Exports</h2>
             <div class="exports-grid">
                 <div class="export-item">
-                    <h4>Coverage Data</h4>
-                    <p>Per-position coverage depths</p>
-                    <a href="data/coverage_per_position.csv" class="download-btn">Download CSV</a>
+                    <h4>Coverage Depth</h4>
+                    <p>Run-length depth in bedGraph format</p>
+                    <a href="data/coverage.bedgraph" class="download-btn">Download bedGraph</a>
                 </div>
                 <div class="export-item">
                     <h4>Gap Regions</h4>
-                    <p>Coverage gaps in BED format</p>
+                    <p>Runs below the minimum depth in BED format</p>
                     <a href="data/gap_regions.bed" class="download-btn">Download BED</a>
                 </div>
                 <div class="export-item">
-                    <h4>Statistics Summary</h4>
-                    <p>Complete statistics in JSON format</p>
-                    <a href="data/statistics_summary.json" class="download-btn">Download JSON</a>
+                    <h4>All Results</h4>
+                    <p>Statistics, gaps, quality score and versions in JSON format</p>
+                    <a href="evaluation.json" class="download-btn">Download JSON</a>
                 </div>
             </div>
         </div>

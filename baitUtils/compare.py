@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import add_logging_arguments, logging_kwargs, positive_int, non_negative_int
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
@@ -66,24 +67,30 @@ def add_arguments(parser):
     )
     parser.add_argument(
         '--minimap2-preset',
-        default='sr',
+        default=None,
         help='minimap2 -x preset when --mapper minimap2 (default: sr)'
     )
     parser.add_argument(
         '--min-identity',
         type=float,
         default=90.0,
-        help='Minimum sequence identity for mapping (default: 90.0)'
+        help='Minimum BLAT percent identity for a hit to count; also passed to pblat (default: 90)'
     )
     parser.add_argument(
         '--min-length',
-        type=int,
+        type=non_negative_int,
         default=100,
-        help='Minimum mapping length (default: 100)'
+        help='Minimum aligned length in bases for a hit to count (default: 100)'
+    )
+    parser.add_argument(
+        '--max-hits',
+        type=non_negative_int,
+        default=None,
+        help='Treat baits with more passing hits than this as unmapped (off-target filter; default: no limit)'
     )
     parser.add_argument(
         '--threads',
-        type=int,
+        type=positive_int,
         default=1,
         help='Number of threads for mapping (default: 1)'
     )
@@ -100,6 +107,26 @@ def add_arguments(parser):
         type=float,
         default=10.0,
         help='Target coverage depth for analysis (default: 10.0)'
+    )
+    
+    # Gap and reference analysis parameters (as in evaluate)
+    parser.add_argument(
+        '--min-gap-size',
+        type=positive_int,
+        default=100,
+        help='Minimum gap size to report (default: 100)'
+    )
+    parser.add_argument(
+        '--gap-extend',
+        type=non_negative_int,
+        default=0,
+        help='Extend the sequence window used for gap features by N bases on each side (default: 0)'
+    )
+    parser.add_argument(
+        '--reference-analysis-window',
+        type=positive_int,
+        default=1000,
+        help='Window size for reference sequence analysis (default: 1000)'
     )
     
     # Analysis options
@@ -131,30 +158,33 @@ def add_arguments(parser):
     )
     parser.add_argument(
         '--plot-dpi',
-        type=int,
+        type=positive_int,
         default=300,
         help='Plot resolution in DPI (default: 300)'
     )
     
     # Output control
     parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress progress messages'
+        '--temp-dir',
+        type=Path,
+        default=None,
+        help="Parent directory for the run's temporary directories (default: system temp)"
     )
-    parser.add_argument(
-        '-l', '--log',
-        action='store_true',
-        help='Enable detailed logging'
-    )
+    add_logging_arguments(parser, verbose_aliases=('-l', '--log'))
 
 
 def main(args):
     """Main function for the 'compare' subcommand."""
-    setup_logging(args.log, args.quiet)
+    ensure_logging(**logging_kwargs(args))
     
     # Validate inputs
     validate_inputs(args)
+    if args.minimap2_preset is not None and args.mapper == 'pblat':
+        logging.warning("--minimap2-preset has no effect with --mapper pblat")
+    if args.minimap2_preset is None:
+        args.minimap2_preset = 'sr'
+    if args.temp_dir:
+        Path(args.temp_dir).mkdir(parents=True, exist_ok=True)
     
     # Parse oligo set specifications
     oligo_sets = parse_oligo_sets(args.sets)
@@ -176,7 +206,12 @@ def main(args):
         threads=args.threads,
         mapper=args.mapper,
         minimap2_preset=args.minimap2_preset,
-        strand=args.strand
+        strand=args.strand,
+        max_hits=args.max_hits,
+        min_gap_size=args.min_gap_size,
+        gap_extend=args.gap_extend,
+        reference_analysis_window=args.reference_analysis_window,
+        temp_dir=args.temp_dir,
     )
     
     # Add each oligo set for analysis
@@ -237,7 +272,10 @@ def main(args):
         'reference': str(args.reference),
         'parameters': {
             'min_identity': args.min_identity, 'min_length': args.min_length,
+            'max_hits': args.max_hits,
             'min_coverage': args.min_coverage, 'target_coverage': args.target_coverage,
+            'min_gap_size': args.min_gap_size, 'gap_extend': args.gap_extend,
+            'reference_analysis_window': args.reference_analysis_window,
             'significance_level': args.significance_level,
             'multiple_comparison_correction': args.multiple_comparison_correction,
         },
@@ -260,10 +298,6 @@ def main(args):
     
     logging.info(f"Comparative analysis complete! Results saved to {output_dir}")
 
-
-def setup_logging(enable_debug: bool, quiet: bool) -> None:
-    """Configure logging (kept for direct calls of main)."""
-    ensure_logging(verbose=enable_debug, quiet=quiet)
 
 def validate_inputs(args) -> None:
     """Validate input files and parameters."""
