@@ -360,7 +360,7 @@ form appears in README.md. Global switches in front of the command:
 | stats | `--min-hairpin-dg` | float |  | kebab | yes |
 | stats | `--min-dimer-dg` | float |  | kebab | yes |
 | stats | `-K --maxmask` | float |  | word | yes |
-| stats | `-p --processes` | int | 3 | word | no |
+| stats | `-p --processes` | int | cpu_count - 1 | word | no |
 | stats | `-s --sample` | int |  | word | no |
 | stats | `-f --filter` | flag | False | word | yes |
 | stats | `-v --verbose` | flag | False | word | yes |
