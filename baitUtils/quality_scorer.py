@@ -291,8 +291,11 @@ class QualityScorer:
         expected_difficulty = extreme_gc_fraction + high_repeat_fraction + challenging_fraction
         actual_breadth = self.coverage_stats.get('coverage_breadth', 0) / 100
         
-        if expected_difficulty > 0:
-            performance_ratio = actual_breadth / (1.0 - expected_difficulty * 0.5)
+        # expected_difficulty is a sum of three fractions and can reach 3.0;
+        # cap it so that the expected breadth stays positive (at least 0.25)
+        expected_breadth = 1.0 - min(expected_difficulty, 1.5) * 0.5
+        if expected_difficulty > 0 and expected_breadth > 0:
+            performance_ratio = actual_breadth / expected_breadth
             if performance_ratio > 1.0:  # Better than expected
                 difficulty_score = min(1.0, difficulty_score + (performance_ratio - 1.0) * 0.2)
         

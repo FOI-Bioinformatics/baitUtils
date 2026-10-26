@@ -256,14 +256,15 @@ class SequenceProcessor:
         uncovered_regions: Dict[str, List[Tuple[int, int]]],
         fasta_path: Path,
         output_path: Path,
-        n_split_path: Path,
+        n_split_path: Optional[Path] = None,
         extend_bp: int = 0,
         length_cutoff: int = 0,
         oligo_length: int = 120
     ) -> None:
         """
-        Export uncovered regions as FASTA (optionally extended on both sides),
-        and split regions at 'N' into smaller segments.
+        Export uncovered regions as FASTA (optionally extended on both sides)
+        and, when n_split_path is given, the regions split at 'N' runs into
+        pieces of at least oligo_length bases.
         """
         reference_seqs = {record.id: record.seq 
                           for record in SeqIO.parse(fasta_path, "fasta")}
@@ -308,10 +309,10 @@ class SequenceProcessor:
                         n_split_records.append(split_record)
         
         SeqIO.write(uncovered_records, output_path, "fasta")
-        SeqIO.write(n_split_records, n_split_path, "fasta")
-        
         logging.info(f"Wrote {total_regions} uncovered regions to {output_path}")
-        logging.info(f"Wrote {n_split_regions} N-split regions to {n_split_path}")
+        if n_split_path:
+            SeqIO.write(n_split_records, n_split_path, "fasta")
+            logging.info(f"Wrote {n_split_regions} N-split regions to {n_split_path}")
 
 
 class SequenceLoader:
@@ -465,8 +466,7 @@ class CoverageChecker:
         
         if args.uncovered_fasta and args.reference:
             if not args.n_split_fasta:
-                logging.warning("--n_split_fasta not specified, skipping N-split output")
-            else:
-                self.sequence_processor.export_uncovered_fasta(
-                    uncovered_regions, args.reference, args.uncovered_fasta, args.n_split_fasta,
-                    args.extend_region, uncovered_length_cutoff, args.min_oligo_length)
+                logging.info("--n_split_fasta not given; writing the uncovered FASTA only")
+            self.sequence_processor.export_uncovered_fasta(
+                uncovered_regions, args.reference, args.uncovered_fasta, args.n_split_fasta,
+                args.extend_region, uncovered_length_cutoff, args.min_oligo_length)

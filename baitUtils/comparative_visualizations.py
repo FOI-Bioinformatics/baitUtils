@@ -456,7 +456,7 @@ class ComparativeVisualizer:
                     row['Coverage_Breadth_%'] / 100,  # Normalize to 0-1
                     row['Mean_Depth_x'] / 20,  # Normalize assuming max ~20x
                     row['Mapping_Efficiency_%'] / 100,
-                    row['Quality_Score'] / 10,
+                    row['Quality_Score'],  # already 0-1
                     1 - (row['Total_Gaps'] / comparison_matrix['Total_Gaps'].max()),  # Invert
                     1 - row['Gini_Coefficient']  # Invert (higher = more uniform)
                 ],

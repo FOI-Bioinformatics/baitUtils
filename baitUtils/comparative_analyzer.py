@@ -278,8 +278,12 @@ class ComparativeAnalyzer:
     
     def generate_ranking(self, weights: Optional[Dict[str, float]] = None) -> List[Tuple[str, float]]:
         """
-        Generate ranking of oligo sets based on weighted composite score.
-        
+        Rank oligo sets by a weighted composite score in 0-1.
+
+        Each term is scaled to 0-1 before weighting: the quality score as
+        is, breadth and mapping efficiency as fractions, and a gap term that
+        falls linearly from 1 at no gaps to 0 at 100 gaps or more.
+
         Args:
             weights: Custom weights for different metrics
         """
@@ -296,9 +300,9 @@ class ComparativeAnalyzer:
             # Calculate composite score
             score = (
                 result.quality_score.overall_score * weights['quality_score'] +
-                result.coverage_stats.get('coverage_breadth', 0) / 10 * weights['coverage_breadth'] +
-                result.coverage_stats.get('mapping_efficiency', 0) / 10 * weights['mapping_efficiency'] +
-                max(0, (100 - result.gap_analysis.get('total_gaps', 0)) / 10) * weights['gap_penalty']
+                result.coverage_stats.get('coverage_breadth', 0) / 100 * weights['coverage_breadth'] +
+                result.coverage_stats.get('mapping_efficiency', 0) / 100 * weights['mapping_efficiency'] +
+                max(0.0, (100 - result.gap_analysis.get('total_gaps', 0)) / 100) * weights['gap_penalty']
             )
             scores.append((result.name, score))
         
@@ -353,7 +357,7 @@ class ComparativeAnalyzer:
         for gap1 in gaps1:
             for gap2 in gaps2:
                 if (gap1['chromosome'] == gap2['chromosome'] and
-                    not (gap1['end'] < gap2['start'] or gap2['end'] < gap1['start'])):
+                    not (gap1['end'] <= gap2['start'] or gap2['end'] <= gap1['start'])):
                     
                     # Calculate overlap
                     overlap_start = max(gap1['start'], gap2['start'])
@@ -385,7 +389,7 @@ class ComparativeAnalyzer:
             is_unique = True
             for other_gap in other_gaps:
                 if (gap['chromosome'] == other_gap['chromosome'] and
-                    not (gap['end'] < other_gap['start'] or other_gap['end'] < gap['start'])):
+                    not (gap['end'] <= other_gap['start'] or other_gap['end'] <= gap['start'])):
                     is_unique = False
                     break
             

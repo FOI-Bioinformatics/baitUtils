@@ -177,17 +177,16 @@ class GapFillingProcessor:
         # Uncovered FASTA
         if args.uncovered_fasta and args.reference:
             if not args.n_split_fasta:
-                logging.warning("--n_split_fasta not specified, skipping N-split output")
-            else:
-                SequenceProcessor.export_uncovered_fasta(
-                    uncovered,
-                    args.reference,
-                    args.uncovered_fasta,
-                    args.n_split_fasta,
-                    args.extend_region,
-                    args.uncovered_length_cutoff,
-                    args.min_oligo_length
-                )
+                logging.info("--n_split_fasta not given; writing the uncovered FASTA only")
+            SequenceProcessor.export_uncovered_fasta(
+                uncovered,
+                args.reference,
+                args.uncovered_fasta,
+                args.n_split_fasta,
+                args.extend_region,
+                args.uncovered_length_cutoff,
+                args.min_oligo_length
+            )
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

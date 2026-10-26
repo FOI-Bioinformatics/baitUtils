@@ -15,7 +15,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 import tempfile
 import shutil
 
@@ -375,6 +375,19 @@ def perform_mapping(args, temp_dir: Path) -> Path:
     return psl_file
 
 
+def reference_analysis_record(reference_analysis) -> Optional[Dict]:
+    """
+    The parts of the reference analysis worth keeping in the JSON output:
+    per-reference features and difficulty, the feature-coverage correlations
+    with breadth by GC decile, and the challenging windows. The per-window
+    feature table is left out because it is large.
+    """
+    if not reference_analysis:
+        return None
+    return {key: reference_analysis.get(key) for key in
+            ('sequence_features', 'challenging_regions', 'coverage_correlations', 'challenging_windows')}
+
+
 def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args,
                      benchmark_results=None, quality_score=None, reference_analysis=None) -> None:
     """Generate text reports and the machine-readable evaluation.json."""
@@ -389,10 +402,11 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
             'min_gap_size': args.min_gap_size,
         },
         'coverage_stats': coverage_stats,
-        'gap_analysis': {k: v for k, v in gap_analysis.items() if k != 'feature_analysis'},
+        'gap_analysis': {k: v for k, v in gap_analysis.items() if k not in ('feature_analysis', 'gap_features')},
         'quality_score': quality_score.to_dict() if quality_score is not None else None,
         'benchmarks': benchmark_results,
-        'reference_summary': (reference_analysis or {}).get('summary'),
+        'reference_summary': (reference_analysis or {}).get('analysis_summary'),
+        'reference_analysis': reference_analysis_record(reference_analysis),
     }, output_dir / "evaluation.json")
     
     # Coverage statistics report

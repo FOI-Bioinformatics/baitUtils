@@ -23,6 +23,7 @@ from baitUtils.logging_utils import ensure_logging
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
 from baitUtils.json_export import write_json, tool_versions, arguments_record
+from baitUtils.evaluate import reference_analysis_record
 from baitUtils.mapping_utils import check_mapper_available
 from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
@@ -211,7 +212,9 @@ def main(args):
     report_generator = ComparativeReportGenerator(
         analyzer=analyzer,
         output_dir=output_dir,
-        differential_analyzer=differential_analyzer
+        differential_analyzer=differential_analyzer,
+        visualizer=visualizer,
+        plots=plots
     )
     
     report_file = report_generator.generate_report()
@@ -241,11 +244,12 @@ def main(args):
         'sets': [{
             'name': r.name, 'file': r.file_path,
             'coverage_stats': r.coverage_stats,
-            'gap_analysis': {k: v for k, v in r.gap_analysis.items() if k != 'feature_analysis'},
+            'gap_analysis': {k: v for k, v in r.gap_analysis.items() if k not in ('feature_analysis', 'gap_features')},
             'quality_score': r.quality_score.to_dict(),
             'benchmarks': r.benchmark_results,
         } for r in analyzer.oligo_sets],
         'comparison_matrix': comparison_matrix,
+        'reference_analysis': reference_analysis_record(analyzer.reference_analysis),
         'ranking': analyzer.generate_ranking(),
         'statistics': statistics,
     }, output_dir / "comparison.json")

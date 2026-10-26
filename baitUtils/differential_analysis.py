@@ -42,6 +42,8 @@ class StatisticalTest:
     p_adjusted: Optional[float] = None
     applicable: bool = True
     n: int = 0
+    what: str = ""      # quantity compared, used to word the interpretation
+    detail: str = ""    # statistic summary shown in the interpretation
 
     @property
     def p_reported(self) -> float:
@@ -88,7 +90,10 @@ class DifferentialAnalyzer:
         self.significance_level = significance_level
         self.correction_method = correction_method
         self.window_size = window_size
-        self.alpha_levels = {0.001: '***', 0.01: '**', 0.05: '*', 1.0: 'ns'}
+        # Star labels scale with alpha: '*' at alpha, '**' at alpha/5, '***' at alpha/50
+        # (0.05, 0.01 and 0.001 for the default alpha of 0.05)
+        self.alpha_levels = {significance_level / 50: '***', significance_level / 5: '**',
+                             significance_level: '*'}
 
     # ------------------------------------------------------------------ data
     def _window_means(self, oligo_set: OligoSetResult) -> np.ndarray:
@@ -123,28 +128,22 @@ class DifferentialAnalyzer:
             lev = _not_applicable("Levene", reason, n1 + n2)
         else:
             ks_stat, ks_p = stats.ks_2samp(w1, w2)
-            ks = StatisticalTest("Kolmogorov-Smirnov", float(ks_stat), float(ks_p), float(ks_stat),
-                                 self._get_significance_level(ks_p),
-                                 self._interpret(ks_p, "window depth distributions", f"D={ks_stat:.3f}"),
-                                 n=n1 + n2)
+            ks = self._test("Kolmogorov-Smirnov", ks_stat, ks_p, ks_stat,
+                            "window depth distributions", f"D={ks_stat:.3f}", n1 + n2)
 
             mw_stat, mw_p = stats.mannwhitneyu(w1, w2, alternative='two-sided')
             # Rank-biserial correlation: positive when set1 tends to be larger
             rank_biserial = 2.0 * float(mw_stat) / (n1 * n2) - 1.0
-            mw = StatisticalTest("Mann-Whitney U", float(mw_stat), float(mw_p), rank_biserial,
-                                 self._get_significance_level(mw_p),
-                                 self._interpret(mw_p, "window depth medians", f"U={mw_stat:.0f}"),
-                                 n=n1 + n2)
+            mw = self._test("Mann-Whitney U", mw_stat, mw_p, rank_biserial,
+                            "window depth medians", f"U={mw_stat:.0f}", n1 + n2)
 
             if np.allclose(w1, w1[0]) and np.allclose(w2, w2[0]):
                 lev = _not_applicable("Levene", "no variance in either set", n1 + n2)
             else:
                 lev_stat, lev_p = stats.levene(w1, w2)
                 var_ratio = (np.var(w1, ddof=1) / np.var(w2, ddof=1)) if np.var(w2, ddof=1) > 0 else float('inf')
-                lev = StatisticalTest("Levene", float(lev_stat), float(lev_p), float(var_ratio),
-                                      self._get_significance_level(lev_p),
-                                      self._interpret(lev_p, "window depth variability", f"W={lev_stat:.3f}"),
-                                      n=n1 + n2)
+                lev = self._test("Levene", lev_stat, lev_p, var_ratio,
+                                 "window depth variability", f"W={lev_stat:.3f}", n1 + n2)
 
         self._adjust([ks, mw, lev])
 
@@ -175,7 +174,14 @@ class DifferentialAnalyzer:
 
         per_ref = [s.coverage_stats.get('per_reference', {}) for s in oligo_sets]
         refs = sorted(set.intersection(*(set(p) for p in per_ref))) if per_ref else []
-        source_keys = {'coverage_breadth': 'coverage_breadth', 'mean_depth': 'mean_depth', 'gap_count': 'gaps'}
+        # Gap counts per reference use the gaps of the gap analysis (at or above
+        # min_gap_size), the same definition as total_gaps and the gap-size test.
+        # Gap lists without coordinates (synthetic data) fall back to the
+        # per-reference run counts of the coverage statistics.
+        located = all('chromosome' in g for s in oligo_sets for g in s.gap_analysis.get('gaps', []))
+        gap_counts = [self._gaps_per_reference(s) for s in oligo_sets] if located else None
+        source_keys = {'coverage_breadth': 'coverage_breadth', 'mean_depth': 'mean_depth',
+                       'gap_count': None if located else 'gaps'}
 
         results: Dict[str, StatisticalTest] = {}
         for metric, key in source_keys.items():
@@ -186,7 +192,10 @@ class DifferentialAnalyzer:
                     f"{len(refs)} shared reference(s); paired tests need at least 2", len(refs))
                 continue
 
-            matrix = np.array([[float(p[r].get(key, 0.0)) for r in refs] for p in per_ref])
+            if key is None:
+                matrix = np.array([[float(counts.get(r, 0)) for r in refs] for counts in gap_counts])
+            else:
+                matrix = np.array([[float(p[r].get(key, 0.0)) for r in refs] for p in per_ref])
             if len(oligo_sets) == 2:
                 diff = matrix[0] - matrix[1]
                 if np.all(diff == 0):
@@ -195,11 +204,9 @@ class DifferentialAnalyzer:
                     continue
                 stat, p = stats.wilcoxon(matrix[0], matrix[1])
                 sd = np.std(diff, ddof=1)
-                effect = float(np.mean(diff) / sd) if sd > 0 else float('inf')
-                results[metric] = StatisticalTest(
-                    "Wilcoxon signed-rank", float(stat), float(p), effect,
-                    self._get_significance_level(p),
-                    self._interpret(p, label, f"W={stat:.1f}, n={len(refs)}"), n=len(refs))
+                effect = float(np.mean(diff) / sd) if sd > 0 else float('nan')
+                results[metric] = self._test("Wilcoxon signed-rank", stat, p, effect,
+                                             label, f"W={stat:.1f}, n={len(refs)}", len(refs))
             else:
                 if np.all(matrix == matrix[0]):
                     results[metric] = _not_applicable("Friedman", f"identical {label} on every reference", len(refs))
@@ -207,10 +214,8 @@ class DifferentialAnalyzer:
                 stat, p = stats.friedmanchisquare(*matrix)
                 k, n = matrix.shape
                 kendall_w = float(stat / (n * (k - 1))) if n * (k - 1) > 0 else float('nan')
-                results[metric] = StatisticalTest(
-                    "Friedman", float(stat), float(p), kendall_w,
-                    self._get_significance_level(p),
-                    self._interpret(p, label, f"chi2={stat:.2f}, n={n}"), n=n)
+                results[metric] = self._test("Friedman", stat, p, kendall_w,
+                                             label, f"chi2={stat:.2f}, n={n}", n)
 
         self._adjust(list(results.values()))
         return results
@@ -225,10 +230,8 @@ class DifferentialAnalyzer:
                 "Mann-Whitney U (gap sizes)", "fewer than two gaps in a set", len(sizes1) + len(sizes2))}
         stat, p = stats.mannwhitneyu(sizes1, sizes2, alternative='two-sided')
         effect = 2.0 * float(stat) / (len(sizes1) * len(sizes2)) - 1.0
-        result = StatisticalTest("Mann-Whitney U (gap sizes)", float(stat), float(p), effect,
-                                 self._get_significance_level(p),
-                                 self._interpret(p, "gap size distributions", f"U={stat:.0f}"),
-                                 n=len(sizes1) + len(sizes2))
+        result = self._test("Mann-Whitney U (gap sizes)", stat, p, effect,
+                            "gap size distributions", f"U={stat:.0f}", len(sizes1) + len(sizes2))
         self._adjust([result])
         return {'gap_size_distribution': result}
 
@@ -254,10 +257,8 @@ class DifferentialAnalyzer:
                                    len(a) + len(b))
         stat, p = stats.mannwhitneyu(a, b, alternative='two-sided')
         effect = 2.0 * float(stat) / (len(a) * len(b)) - 1.0
-        result = StatisticalTest("Mann-Whitney U (bait identity)", float(stat), float(p), effect,
-                                 self._get_significance_level(p),
-                                 self._interpret(p, "best-hit identity per bait", f"U={stat:.0f}"),
-                                 n=len(a) + len(b))
+        result = self._test("Mann-Whitney U (bait identity)", stat, p, effect,
+                            "best-hit identity per bait", f"U={stat:.0f}", len(a) + len(b))
         self._adjust([result])
         return result
 
@@ -292,22 +293,50 @@ class DifferentialAnalyzer:
         raise ValueError(f"Unknown correction method: {method}")
 
     def _adjust(self, tests: List[StatisticalTest]) -> None:
-        """Fill p_adjusted for the applicable tests in one family."""
+        """
+        Fill p_adjusted for the applicable tests in one family. Stars and the
+        interpretation are rewritten from the adjusted p-value so that the
+        three never disagree.
+        """
         live = [t for t in tests if t.applicable]
         if not live:
             return
         for test, p_adj in zip(live, self.multiple_comparison_correction([t.p_value for t in live])):
             test.p_adjusted = p_adj
             test.significance_level = self._get_significance_level(p_adj)
+            test.interpretation = self._interpret(p_adj, test.what, test.detail)
+
+    @staticmethod
+    def _gaps_per_reference(oligo_set: OligoSetResult) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for gap in oligo_set.gap_analysis.get('gaps', []):
+            chrom = gap.get('chromosome')
+            if chrom is not None:
+                counts[chrom] = counts.get(chrom, 0) + 1
+        return counts
+
+    def _test(self, test_name: str, statistic, p_value, effect_size, what: str, detail: str,
+              n: int) -> StatisticalTest:
+        """Build an applicable test result; p_adjusted is filled by _adjust."""
+        return StatisticalTest(test_name, float(statistic), float(p_value), float(effect_size),
+                               self._get_significance_level(p_value),
+                               self._interpret(p_value, what, detail), None, True, n, what, detail)
 
     # ----------------------------------------------------------------- helpers
     def _get_significance_level(self, p_value: float) -> str:
+        """Star label for a p-value relative to the configured alpha; 'ns' above alpha."""
         if p_value is None or np.isnan(p_value):
             return 'n/a'
         for threshold, level in sorted(self.alpha_levels.items()):
             if p_value <= threshold:
                 return level
         return 'ns'
+
+    def significance_legend(self) -> str:
+        """Text explaining the star labels for the configured alpha."""
+        a = self.significance_level
+        return (f"*** p<={a / 50:g}, ** p<={a / 5:g}, * p<={a:g}, ns p>{a:g} "
+                f"(adjusted p-values, {self.correction_method})")
 
     def _interpret(self, p_value: float, what: str, detail: str) -> str:
         if p_value <= self.significance_level:

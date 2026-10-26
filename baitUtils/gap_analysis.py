@@ -284,6 +284,7 @@ class GapAnalyzer:
                 'size_distribution': {},
                 'largest_gaps': [],
                 'gaps': [],
+                'gap_features': [],
                 'feature_analysis': {}
             }
             return
@@ -301,7 +302,8 @@ class GapAnalyzer:
             'median_gap_size': np.median(gap_lengths),
             'max_gap_size': max(gap_lengths),
             'min_gap_size': min(gap_lengths),
-            'gaps': [dict(gap) for gap in self.gaps]
+            'gaps': [dict(gap) for gap in self.gaps],
+            'gap_features': [dict(f) for f in self.gap_features],
         }
         
         # Gap size distribution

@@ -143,8 +143,9 @@ restricts the hits to one target strand (also in `fill`, `evaluate` and
 `compare`; the default counts both). Reference sizes come from the FASTA, so
 regions after the last mapped bait are included. `--forced_oligos` restricts
 the check to a list of bait IDs. `--uncovered_fasta` exports the uncovered
-sequence, optionally extended by `--extend_region` and split at N runs into
-pieces of at least `--min_oligo_length`.
+sequence, optionally extended by `--extend_region`; with `--n_split_fasta`
+the regions are also written split at N runs into pieces of at least
+`--min_oligo_length`.
 
 ### fill
 
@@ -191,6 +192,10 @@ evaluation/
   interactive_plots/               plotly figures
 ```
 
+`evaluation.json` also holds a `reference_analysis` block with the
+per-reference features, the challenging regions and windows, and the
+feature-coverage correlations described below.
+
 Mapping efficiency counts baits in the input FASTA. Gap coordinates come from
 the per-base coverage arrays. Hits are counted per strand (`strand_counts`,
 and `plus_hits` and `minus_hits` per reference). Breadth is reported both
@@ -221,6 +226,9 @@ baitUtils compare -r reference.fasta -o comparison/ \
 Evaluates each set as `evaluate` does and writes `comparison.json`,
 `comparison_matrix.csv`, `pairwise_comparisons.csv`,
 `gap_overlap_analysis.txt`, `comparative_analysis_report.html` and plots.
+Sets are ranked by a composite score in 0 to 1: quality score (40 %),
+coverage breadth (25 %), mapping efficiency (20 %) and a gap term that falls
+from 1 at no gaps to 0 at 100 gaps (15 %).
 
 Statistical tests are computed on observed data:
 

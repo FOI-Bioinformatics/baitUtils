@@ -15,6 +15,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from baitUtils.quality_scorer import QualityScorer
+
 
 class InteractivePlotter:
     """Generate interactive plots for coverage analysis."""
@@ -346,15 +348,12 @@ class InteractivePlotter:
         logging.info("Creating quality assessment plot...")
         
         fig = make_subplots(
-            rows=2, cols=2,
+            rows=1, cols=3,
             subplot_titles=[
                 'Quality Score Breakdown', 'Performance vs Benchmarks',
-                'Theoretical vs Actual Performance', 'Quality Trends'
+                'Overall Score vs Category Thresholds'
             ],
-            specs=[
-                [{"type": "bar"}, {"type": "scatterpolar"}],
-                [{"type": "bar"}, {"type": "scatter"}]
-            ]
+            specs=[[{"type": "bar"}, {"type": "scatterpolar"}, {"type": "bar"}]]
         )
         
         # 1. Quality Score Breakdown
@@ -408,60 +407,34 @@ class InteractivePlotter:
                 line=dict(color='red', dash='dash')
             ), row=1, col=2)
         
-        # 3. Theoretical vs Actual Performance
-        theoretical = self.quality_scores.get('theoretical_comparison', {})
-        if theoretical:
-            current_perf = theoretical.get('current_performance', {})
-            metrics = list(current_perf.keys())
-            efficiencies = list(current_perf.values())
-            
-            fig.add_trace(go.Bar(
-                x=metrics,
-                y=efficiencies,
-                marker_color=['green' if e >= 0.8 else 'orange' if e >= 0.5 else 'red' 
-                             for e in efficiencies],
-                text=[f'{e:.1%}' for e in efficiencies],
-                textposition='auto',
-                showlegend=False
-            ), row=2, col=1)
-        
-        # 4. Quality Trends (simulated time series)
-        # This would be actual historical data in a real implementation
-        time_points = ['Initial', 'Current', 'Potential']
-        quality_trend = [
-            0.4,  # Hypothetical initial
-            self.quality_scores.get('overall_score', 0.5),  # Current
-            min(1.0, self.quality_scores.get('overall_score', 0.5) + 0.2)  # Potential improvement
-        ]
-        
-        fig.add_trace(go.Scatter(
-            x=time_points,
-            y=quality_trend,
-            mode='lines+markers',
-            marker=dict(size=10, color='purple'),
-            line=dict(width=3, color='purple'),
+        # 3. Overall score against the category thresholds of the scorer
+        overall = self.quality_scores.get('overall_score', 0.0)
+        category = self.quality_scores.get('category', '')
+        fig.add_trace(go.Bar(
+            x=['Overall score'],
+            y=[overall],
+            marker_color='purple',
+            text=[f'{overall:.2f} {category}'.strip()],
+            textposition='auto',
             showlegend=False,
-            hovertemplate='%{x}: %{y:.3f}<extra></extra>'
-        ), row=2, col=2)
-        
-        # Add quality thresholds
-        thresholds = self.quality_scores.get('quality_thresholds', {})
-        if thresholds:
-            for category, threshold in thresholds.items():
-                if category != 'poor':  # Skip poor threshold (0.0)
-                    fig.add_hline(
-                        y=threshold, 
-                        line_dash="dash", 
-                        line_color="gray",
-                        row=2, col=2,
-                        annotation_text=category.title()
-                    )
+            hovertemplate='Overall: %{y:.3f}<extra></extra>'
+        ), row=1, col=3)
+        # Threshold lines drawn as shapes on the third panel (add_hline cannot
+        # be used on a figure that also holds a polar subplot)
+        for name, threshold in QualityScorer.DEFAULT_THRESHOLDS.items():
+            if threshold > 0:
+                fig.add_shape(type="line", x0=-0.5, x1=0.5, y0=threshold, y1=threshold,
+                              line=dict(dash="dash", color="gray"), row=1, col=3)
+                fig.add_annotation(x=-0.45, y=threshold, text=name.title(), showarrow=False,
+                                   xanchor="left", yanchor="bottom", font=dict(color="gray", size=11),
+                                   row=1, col=3)
+        fig.update_yaxes(range=[0, 1.05], row=1, col=3)
         
         # Update layout
         fig.update_layout(
             title_text="Coverage Quality Assessment",
             title_font_size=18,
-            height=800,
+            height=500,
             template="plotly_white",
             showlegend=True
         )
@@ -469,12 +442,7 @@ class InteractivePlotter:
         # Update axes
         fig.update_xaxes(title_text="Quality Components", row=1, col=1)
         fig.update_yaxes(title_text="Score", row=1, col=1)
-        
-        fig.update_xaxes(title_text="Performance Metrics", row=2, col=1)
-        fig.update_yaxes(title_text="Efficiency", row=2, col=1)
-        
-        fig.update_xaxes(title_text="Analysis Stage", row=2, col=2)
-        fig.update_yaxes(title_text="Quality Score", row=2, col=2)
+        fig.update_yaxes(title_text="Score (0-1)", row=1, col=3)
         
         # Save plot
         quality_file = self.plots_dir / "quality_assessment.html"

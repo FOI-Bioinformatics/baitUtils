@@ -11,6 +11,7 @@ import argparse
 import logging
 import multiprocessing
 import os
+import sys
 import gzip
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -377,7 +378,7 @@ def main(args) -> None:
     # Validate input file
     if not os.path.exists(args.input):
         logging.error(f"Input file not found: {args.input}")
-        return
+        sys.exit(1)
     
     # Initialize filter
     seq_filter = SequenceFilter(
