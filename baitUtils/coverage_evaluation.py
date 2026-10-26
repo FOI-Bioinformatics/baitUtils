@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import (add_argument, add_logging_arguments, logging_kwargs, percent,
+                                 positive_int, non_negative_int)
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.bedtools_support import require_bedtools
 from baitUtils.coverage_analysis import CoverageChecker, PSLParser, ForcedOligoHandler
@@ -36,7 +38,7 @@ class CoverageEvaluationProcessor:
             args: Parsed command-line arguments
         """
         # Set up logging
-        self._setup_logging(args.log_level)
+        ensure_logging(**logging_kwargs(args))
         require_bedtools()
 
         import pybedtools
@@ -50,7 +52,7 @@ class CoverageEvaluationProcessor:
             pybedtools.set_tempdir(str(work_dir))  # sets tempfile.tempdir globally
             try:
                 bed = self.psl_converter.parse_psl_to_bed(
-                    args.psl, args.min_length, args.min_similarity, work_dir, "temp_check.bed",
+                    args.alignments, args.min_length, args.min_identity, work_dir, "temp_check.bed",
                     strand=args.strand
                 )
                 if bed.count() == 0:
@@ -71,61 +73,63 @@ class CoverageEvaluationProcessor:
                 pybedtools.cleanup(remove_all=True)
                 tempfile.tempdir = previous_tempdir
     
-    def _setup_logging(self, log_level: str = "INFO") -> None:
-        """Configure logging."""
-        ensure_logging(level=log_level)
+
+
+def add_coverage_arguments(parser: argparse.ArgumentParser, min_coverage_help: str) -> None:
+    """Options shared by check and fill: alignment input, filters, uncovered-region outputs."""
+    # Input files
+    add_argument(parser, "--alignments", dest="alignments", type=Path, required=True, aliases=("--psl",),
+                 help="Alignment file: PSL from pblat or PAF from minimap2 -c (by extension)")
+    add_argument(parser, "--forced-oligos", dest="forced_oligos", type=Path, aliases=("--forced_oligos",),
+                 help="File with oligo IDs that must be included")
+    parser.add_argument("--reference", type=Path, required=True,
+                        help="Reference FASTA; used for reference sizes, sequence-based scoring "
+                             "and export of uncovered regions")
+    
+    # Coverage and filtering parameters
+    add_argument(parser, "--min-coverage", dest="min_coverage", type=float, default=1.0,
+                 aliases=("--min_coverage",), help=min_coverage_help)
+    add_argument(parser, "--min-length", dest="min_length", type=non_negative_int, default=100,
+                 aliases=("--min_length",),
+                 help="Minimum aligned length in bases for a hit to count (default: 100)")
+    add_argument(parser, "--min-identity", dest="min_identity", type=percent, default=90.0,
+                 aliases=("--min_similarity", "--min-similarity"),
+                 help="Minimum BLAT percent identity for a hit to count (default: 90)")
+    parser.add_argument("--strand", choices=["both", "plus", "minus"], default="both",
+                        help="Count hits on both strands, or only plus or minus strand hits (default: both)")
+    add_argument(parser, "--uncovered-length-cutoff", dest="uncovered_length_cutoff", type=non_negative_int,
+                 default=0, aliases=("--uncovered_length_cutoff",),
+                 help="Report uncovered stretches of at least this length (default: 0)")
+    
+    # Output files
+    add_argument(parser, "--coverage-out", dest="coverage_out", type=Path, aliases=("--coverage_out",),
+                 help="Output file for coverage data")
+    add_argument(parser, "--longest-uncovered-out", dest="longest_uncovered_out", type=Path,
+                 aliases=("--longest_uncovered_out",),
+                 help="Output file for uncovered regions, longest first")
+    add_argument(parser, "--uncovered-fasta", dest="uncovered_fasta", type=Path, aliases=("--uncovered_fasta",),
+                 help="Output FASTA file for uncovered regions")
+    add_argument(parser, "--n-split-fasta", dest="n_split_fasta", type=Path, aliases=("--n_split_fasta",),
+                 help="Output FASTA file for uncovered regions split at N runs")
+    
+    # FASTA export parameters
+    add_argument(parser, "--extend-region", dest="extend_region", type=non_negative_int, default=0,
+                 aliases=("--extend_region",),
+                 help="Number of bases to extend uncovered regions by on each side (default: 0)")
+    add_argument(parser, "--min-oligo-length", dest="min_oligo_length", type=positive_int, default=120,
+                 aliases=("--min_oligo_length",),
+                 help="Minimum piece length after N-splitting (default: 120)")
+    
+    # System parameters
+    add_argument(parser, "--temp-dir", dest="temp_dir", type=Path, aliases=("--temp_dir",),
+                 help="Parent directory for the run's temporary directory (default: system temp)")
+
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for coverage evaluation."""
-    parser.add_argument('--version', action='version', 
-                       version=f"baitUtils coverage-evaluation {__version__}")
-    
-    # Input files
-    parser.add_argument("--alignments", "--psl", dest="psl", type=Path, required=True,
-                       help="Alignment file: PSL from pblat or PAF from minimap2 -c (by extension)")
-    parser.add_argument("--forced_oligos", type=Path,
-                       help="File with oligo IDs that must be included in coverage check")
-    parser.add_argument("--reference", type=Path, required=True,
-                       help="Reference FASTA file for exporting uncovered regions")
-    
-    # Coverage parameters
-    parser.add_argument("--min_coverage", type=float, default=10.0,
-                       help="Minimum coverage required per base (default=10.0)")
-    
-    # Filtering parameters
-    parser.add_argument("--min_length", type=int, default=100,
-                       help="Minimum mapping length to consider (default=100)")
-    parser.add_argument("--strand", choices=["both", "plus", "minus"], default="both",
-                       help="Count hits on both strands, or only plus or minus strand hits (default: both)")
-    parser.add_argument("--min_similarity", type=float, default=95.0,
-                       help="Minimum percent identity to consider (default=95.0)")
-    parser.add_argument("--uncovered_length_cutoff", type=int, default=0,
-                       help="Save uncovered stretches longer than this cutoff (default=0)")
-    
-    # Output files
-    parser.add_argument("--coverage_out", type=Path,
-                       help="Output file for coverage data")
-    parser.add_argument("--longest_uncovered_out", type=Path,
-                       default=Path("longest_uncovered.txt"),
-                       help="Output file for uncovered regions")
-    parser.add_argument("--uncovered_fasta", type=Path,
-                       help="Output FASTA file for uncovered regions")
-    parser.add_argument("--n_split_fasta", type=Path,
-                       help="Output FASTA file for N-split regions")
-    
-    # FASTA export parameters
-    parser.add_argument("--extend_region", type=int, default=0,
-                       help="Number of bases to extend uncovered regions on each side")
-    parser.add_argument("--min_oligo_length", type=int, default=120,
-                       help="Minimum sub-region length after N-splitting (default=120)")
-    
-    # System parameters
-    parser.add_argument("--temp_dir", type=Path,
-                       help="Parent directory for the run's temporary directory (default: system temp)")
-    parser.add_argument("--log-level", "--log_level", dest="log_level",
-                       choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-                       default="INFO", help="Set logging level")
-
+    parser.add_argument('--version', action='version', version=f"baitUtils check {__version__}")
+    add_coverage_arguments(parser, "Minimum depth for a base to count as covered (default: 1)")
+    add_logging_arguments(parser)
 
 def main(args) -> None:
     """Main function for coverage evaluation command."""

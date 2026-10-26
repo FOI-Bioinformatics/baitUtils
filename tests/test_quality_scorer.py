@@ -231,7 +231,7 @@ class TestQualityScorer(unittest.TestCase):
         self.assertIsInstance(quality_score, QualityScore)
         
         # Check overall score is in valid range
-        self.assertTrue(0 <= quality_score.overall_score <= 10)
+        self.assertTrue(0 <= quality_score.overall_score <= 1)
         
         # Check grade assignment
         self.assertIn(quality_score.category, [QualityCategory.EXCELLENT, QualityCategory.GOOD, QualityCategory.FAIR, QualityCategory.POOR])
@@ -244,14 +244,13 @@ class TestQualityScorer(unittest.TestCase):
             self.assertIn(component, quality_score.component_scores)
             self.assertTrue(0 <= quality_score.component_scores[component] <= 1)
         
-        # Check grade assignment logic
-        if quality_score.overall_score >= 0.9:
+        # Check grade assignment logic against the scorer's own thresholds
+        thresholds = QualityScorer.DEFAULT_THRESHOLDS
+        if quality_score.overall_score >= thresholds['excellent']:
             self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
-        elif quality_score.overall_score >= 0.8:
-            self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
-        elif quality_score.overall_score >= 0.7:
+        elif quality_score.overall_score >= thresholds['good']:
             self.assertEqual(quality_score.category, QualityCategory.GOOD)
-        elif quality_score.overall_score >= 0.5:
+        elif quality_score.overall_score >= thresholds['fair']:
             self.assertEqual(quality_score.category, QualityCategory.FAIR)
         else:
             self.assertEqual(quality_score.category, QualityCategory.POOR)
@@ -367,18 +366,18 @@ class TestQualityScore(unittest.TestCase):
             'mapping_efficiency_score': 9.1
         }
         
-        quality_score = create_quality_score(7.8, 'B')
+        quality_score = create_quality_score(0.78, 'B')
         
-        self.assertEqual(quality_score.overall_score, 7.8)
+        self.assertEqual(quality_score.overall_score, 0.78)
         self.assertEqual(quality_score.category, QualityCategory.GOOD)
         self.assertIn('coverage_breadth', quality_score.component_scores)
     
     def test_quality_score_string_representation(self):
         """Test QualityScore string representation."""
-        quality_score = create_quality_score(8.5, 'A')
+        quality_score = create_quality_score(0.85, 'A')
         
         str_repr = str(quality_score)
-        self.assertIn('8.5', str_repr)
+        self.assertIn('0.85', str_repr)
         self.assertIn('EXCELLENT', str_repr)
 
 

@@ -11,12 +11,14 @@ import argparse
 import logging
 import multiprocessing
 import os
+import sys
 import gzip
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from Bio import SeqIO
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import add_argument, add_logging_arguments, logging_kwargs, positive_int
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.sequence_analysis import SequenceAnalyzer
 
@@ -304,98 +306,96 @@ class SequenceStatsCalculator:
                     f.write(f"Sequence length: {min(length_values)} - {max(length_values)} bp (mean: {sum(length_values)/len(length_values):.0f} bp)\n")
 
 
+
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for sequence statistics calculation."""
-    parser.add_argument('--version', action='version', version=f"baitUtils sequence-stats {__version__}")
+    parser.add_argument('--version', action='version', version=f"baitUtils stats {__version__}")
     
     # Input/output
-    parser.add_argument('-i', '--input', required=True, 
-                       help='Input FASTA or FASTA.GZ file')
-    parser.add_argument('-o', '--outdir', required=True,
-                       help='Output directory for results')
+    add_argument(parser, '-i', '--input', required=True,
+                 help='Input FASTA or FASTA.GZ file')
+    add_argument(parser, '-o', '--output', dest='outdir', required=True, aliases=('--outdir',),
+                 help='Output directory for results')
     
     # Sequence requirements
-    parser.add_argument('-L', '--length', type=int, default=120,
-                       help='Target bait length (default: 120)')
-    parser.add_argument('-c', '--complete', action='store_true',
-                       help='Require baits to be exact target length')
-    parser.add_argument('-N', '--noNs', action='store_true',
-                       help='Exclude sequences with N bases')
+    add_argument(parser, '-L', '--length', type=int, default=120,
+                 help='Target bait length, used with --complete (default: 120)')
+    add_argument(parser, '-c', '--complete', action='store_true',
+                 help='Require baits to be exact target length')
+    add_argument(parser, '-N', '--no-ns', dest='no_ns', action='store_true', aliases=('--noNs',),
+                 help='Exclude sequences with N bases')
     
     # GC content filters
-    parser.add_argument('-n', '--mingc', type=float,
-                       help='Minimum GC content percentage')
-    parser.add_argument('-x', '--maxgc', type=float,
-                       help='Maximum GC content percentage')
+    add_argument(parser, '-n', '--min-gc', dest='min_gc', type=float, aliases=('--mingc',),
+                 help='Minimum GC content percentage')
+    add_argument(parser, '-x', '--max-gc', dest='max_gc', type=float, aliases=('--maxgc',),
+                 help='Maximum GC content percentage')
     
     # Melting temperature filters
-    parser.add_argument('-q', '--mint', type=float,
-                       help='Minimum melting temperature (C)')
-    parser.add_argument('-z', '--maxt', type=float,
-                       help='Maximum melting temperature (C)')
+    add_argument(parser, '-q', '--min-tm', dest='min_tm', type=float, aliases=('--mint',),
+                 help='Minimum melting temperature (C)')
+    add_argument(parser, '-z', '--max-tm', dest='max_tm', type=float, aliases=('--maxt',),
+                 help='Maximum melting temperature (C)')
     
-    # Other filters
     # Thermodynamic parameters
     parser.add_argument('--na', type=float, default=50.0,
-                       help='Monovalent salt concentration for Tm in mM (default: 50)')
+                        help='Monovalent salt concentration for Tm in mM (default: 50)')
     parser.add_argument('--dnac1', type=float, default=250.0,
-                       help='Concentration of the more abundant strand in nM (default: 250)')
+                        help='Concentration of the more abundant strand in nM (default: 250)')
     parser.add_argument('--dnac2', type=float, default=250.0,
-                       help='Concentration of the less abundant strand in nM (default: 250)')
+                        help='Concentration of the less abundant strand in nM (default: 250)')
     parser.add_argument('--hyb-temp', dest='hyb_temp', type=float, default=65.0,
-                       help='Temperature in C for secondary structure prediction (default: 65)')
+                        help='Temperature in C for secondary structure prediction (default: 65)')
     
     parser.add_argument('--min-hairpin-dg', dest='min_hairpin_dg', type=float,
-                       help='Reject sequences whose hairpin dG (kcal/mol) is below this value, '
-                            'e.g. -3 (requires ViennaRNA)')
+                        help='Reject sequences whose hairpin dG (kcal/mol) is below this value, '
+                             'e.g. -3 (requires ViennaRNA)')
     parser.add_argument('--min-dimer-dg', dest='min_dimer_dg', type=float,
-                       help='Reject sequences whose self-dimer dG (kcal/mol) is below this value, '
-                            'e.g. -6 (requires ViennaRNA)')
+                        help='Reject sequences whose self-dimer dG (kcal/mol) is below this value, '
+                             'e.g. -6 (requires ViennaRNA)')
     
-    parser.add_argument('-K', '--maxmask', type=float,
-                       help='Maximum percentage of masked (lowercase) bases')
+    add_argument(parser, '-K', '--max-mask', dest='max_mask', type=float, aliases=('--maxmask',),
+                 help='Maximum percentage of masked (lowercase) bases')
     
     # Processing options
-    parser.add_argument('-p', '--processes', type=int,
-                       default=max(1, multiprocessing.cpu_count() - 1),
-                       help='Number of processes for parallel computation')
-    parser.add_argument('-s', '--sample', type=int,
-                       help='Sample only N sequences for analysis')
+    add_argument(parser, '-p', '--threads', dest='threads', type=positive_int,
+                 default=max(1, multiprocessing.cpu_count() - 1), aliases=('--processes',),
+                 help='Number of processes for parallel computation (default: all CPUs but one)')
+    parser.add_argument('-s', '--sample', type=positive_int,
+                        help='Analyse only the first N sequences')
     
     # Output options
     parser.add_argument('-f', '--filter', action='store_true',
-                       help='Save filtered sequences to FASTA')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                       help='Enable verbose logging')
-
+                        help='Save filtered sequences to FASTA')
+    add_logging_arguments(parser)
 
 def main(args) -> None:
     """Main function for sequence statistics calculation."""
     # Set up logging
-    ensure_logging(verbose=args.verbose)
+    ensure_logging(**logging_kwargs(args))
     
     # Validate input file
     if not os.path.exists(args.input):
         logging.error(f"Input file not found: {args.input}")
-        return
+        sys.exit(1)
     
     # Initialize filter
     seq_filter = SequenceFilter(
         length=args.length,
         complete=args.complete,
-        no_ns=args.noNs,
-        min_gc=args.mingc,
-        max_gc=args.maxgc,
-        min_tm=args.mint,
-        max_tm=args.maxt,
-        max_mask=args.maxmask,
+        no_ns=args.no_ns,
+        min_gc=args.min_gc,
+        max_gc=args.max_gc,
+        min_tm=args.min_tm,
+        max_tm=args.max_tm,
+        max_mask=args.max_mask,
         min_hairpin_dg=args.min_hairpin_dg,
         min_dimer_dg=args.min_dimer_dg
     )
     
     # Initialize calculator
     calculator = SequenceStatsCalculator(
-        num_processes=args.processes,
+        num_processes=args.threads,
         na=args.na,
         dnac1=args.dnac1,
         dnac2=args.dnac2,

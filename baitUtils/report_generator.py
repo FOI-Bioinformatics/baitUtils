@@ -8,6 +8,7 @@ Creates comprehensive, self-contained HTML reports with embedded interactive plo
 and collapsible sections for detailed analysis.
 """
 
+import html
 import logging
 from pathlib import Path
 from typing import Dict, Any
@@ -18,7 +19,21 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.offline as pyo
 
+from baitUtils.quality_scorer import QualityScorer
 from baitUtils.templates import load_template
+
+
+def _e(value) -> str:
+    """HTML-escape a value that comes from input files (sequence ids)."""
+    return html.escape(str(value), quote=True)
+
+
+CATEGORY_COLORS = {
+    "Excellent": "#4CAF50",
+    "Good": "#FF9800",
+    "Fair": "#FF5722",
+    "Poor": "#F44336",
+}
 
 
 class InteractiveReportGenerator:
@@ -31,7 +46,8 @@ class InteractiveReportGenerator:
         quality_scores: Dict[str, Any],
         reference_analysis: Dict[str, Any],
         output_dir: Path,
-        offline_plots: bool = False
+        offline_plots: bool = False,
+        mapper: str = "pblat"
     ):
         """
         Initialize the interactive report generator.
@@ -42,6 +58,8 @@ class InteractiveReportGenerator:
             quality_scores: Quality scores from QualityScorer
             reference_analysis: Reference sequence analysis results
             output_dir: Directory to save the report
+            offline_plots: embed plotly.js instead of loading it from a CDN
+            mapper: name of the mapper used, for the methodology section
         """
         self.coverage_stats = coverage_stats
         self.gap_analysis = gap_analysis
@@ -49,6 +67,7 @@ class InteractiveReportGenerator:
         self.reference_analysis = reference_analysis
         self.output_dir = Path(output_dir)
         self.offline_plots = offline_plots
+        self.mapper = mapper
         
         # Report metadata
         self.report_title = "baitUtils Coverage Evaluation Report"
@@ -116,19 +135,9 @@ class InteractiveReportGenerator:
         mapping_efficiency = self.coverage_stats.get('mapping_efficiency', 0)
         quality_score = self.quality_scores.get('overall_score', 0)
         
-        # Determine quality category
-        if quality_score >= 0.8:
-            quality_category = "Excellent"
-            quality_color = "#4CAF50"
-        elif quality_score >= 0.6:
-            quality_category = "Good"
-            quality_color = "#FF9800"
-        elif quality_score >= 0.4:
-            quality_category = "Fair"
-            quality_color = "#FF5722"
-        else:
-            quality_category = "Poor"
-            quality_color = "#F44336"
+        # The category comes from the scorer so that report and JSON agree
+        quality_category = self.quality_scores.get('category') or self._category_for(quality_score)
+        quality_color = CATEGORY_COLORS.get(quality_category, "#F44336")
         
         summary_html = f"""
         <div class="executive-summary">
@@ -159,6 +168,18 @@ class InteractiveReportGenerator:
         </div>
         """
         self.html_components.append(summary_html)
+    
+    @staticmethod
+    def _category_for(score: float) -> str:
+        """Category from the scorer's thresholds, for quality dicts without one."""
+        thresholds = QualityScorer.DEFAULT_THRESHOLDS
+        if score >= thresholds['excellent']:
+            return "Excellent"
+        if score >= thresholds['good']:
+            return "Good"
+        if score >= thresholds['fair']:
+            return "Fair"
+        return "Poor"
     
     def _create_coverage_overview(self) -> None:
         """Create interactive coverage overview section."""
@@ -378,7 +399,7 @@ class InteractiveReportGenerator:
             table_rows.append(
                 f"<tr>"
                 f"<td>{i}</td>"
-                f"<td>{gap.get('chromosome', 'Unknown')}</td>"
+                f"<td>{_e(gap.get('chromosome', 'Unknown'))}</td>"
                 f"<td>{gap.get('start', 0):,}</td>"
                 f"<td>{gap.get('end', 0):,}</td>"
                 f"<td>{gap.get('length', 0):,}</td>"
@@ -454,6 +475,8 @@ class InteractiveReportGenerator:
     def _create_reference_analysis(self) -> None:
         """Create reference sequence analysis section."""
         ref_analysis = self._create_reference_features_plot()
+        correlations = self._create_correlation_tables()
+        challenging = self._create_challenging_windows_table()
         
         ref_html = f"""
         <div class="section">
@@ -464,9 +487,79 @@ class InteractiveReportGenerator:
                     {ref_analysis}
                 </div>
             </div>
+            <div class="collapsible">
+                <button class="collapsible-header">Feature-Coverage Correlations</button>
+                <div class="collapsible-content">
+                    {correlations}
+                </div>
+            </div>
+            <div class="collapsible">
+                <button class="collapsible-header">Challenging Windows</button>
+                <div class="collapsible-content">
+                    {challenging}
+                </div>
+            </div>
         </div>
         """
         self.html_components.append(ref_html)
+    
+    def _create_correlation_tables(self) -> str:
+        """Spearman correlations between window features and coverage, and breadth by GC decile."""
+        corr = self.reference_analysis.get('coverage_correlations') or {}
+        if not corr.get('applicable'):
+            reason = corr.get('reason', 'too few windows')
+            return f"<p>Feature-coverage correlations not applicable: {_e(reason)}.</p>"
+        
+        rows = []
+        for name, entry in corr.get('features', {}).items():
+            cells = []
+            for target in ('breadth', 'mean_depth'):
+                rho = entry.get(f'rho_{target}', float('nan'))
+                p = entry.get(f'p_{target}', float('nan'))
+                if rho != rho:
+                    cells.append("<td>n/a</td><td>n/a</td>")
+                else:
+                    cells.append(f"<td>{rho:+.3f}</td><td>{p:.3g}</td>")
+            rows.append(f"<tr><td>{name.replace('_', ' ')}</td>{''.join(cells)}</tr>")
+        
+        gc_rows = []
+        for b in corr.get('breadth_by_gc', []):
+            gc_rows.append(
+                f"<tr><td>{b['gc_min']}-{b['gc_max']}%</td><td>{b['windows']:,}</td>"
+                f"<td>{b['mean_breadth']:.1f}%</td><td>{b['mean_depth']:.1f}x</td></tr>")
+        
+        return f"""
+        <p>{_e(corr.get('method', 'Spearman rank correlation'))} over {corr.get('windows', 0):,}
+        windows of {corr.get('window_size', 0):,} bp. A negative rho with breadth means that
+        windows high in the feature are covered less.</p>
+        <table class="stats-table">
+            <thead><tr><th>Feature</th><th>rho (breadth)</th><th>p</th><th>rho (mean depth)</th><th>p</th></tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+        </table>
+        <h4>Breadth by GC decile</h4>
+        <table class="stats-table">
+            <thead><tr><th>GC</th><th>Windows</th><th>Mean breadth</th><th>Mean depth</th></tr></thead>
+            <tbody>{''.join(gc_rows)}</tbody>
+        </table>
+        """
+    
+    def _create_challenging_windows_table(self) -> str:
+        """Windows with low breadth and an extreme sequence feature."""
+        windows = self.reference_analysis.get('challenging_windows') or {}
+        rows = []
+        for ref_id, entries in windows.items():
+            for w in entries:
+                rows.append(
+                    f"<tr><td>{_e(ref_id)}</td><td>{w['start']:,}</td><td>{w['end']:,}</td>"
+                    f"<td>{w['breadth']:.1f}%</td><td>{_e(', '.join(w.get('reasons', [])))}</td></tr>")
+        if not rows:
+            return "<p>No windows with low breadth and an extreme feature.</p>"
+        return f"""
+        <table class="gaps-table">
+            <thead><tr><th>Reference</th><th>Start</th><th>End</th><th>Breadth</th><th>Features</th></tr></thead>
+            <tbody>{''.join(rows[:200])}</tbody>
+        </table>
+        """
     
     def _create_reference_features_plot(self) -> str:
         """Create reference sequence features visualization."""
@@ -475,15 +568,17 @@ class InteractiveReportGenerator:
         if not features:
             return "<p>No reference analysis data available</p>"
         
-        # Create heatmap of reference features
+        # Heatmap of reference features, each scaled to 0-1 so that one
+        # colour scale serves all rows (GC and repeats in percent, entropy
+        # in bits out of 2, homopolymer length capped at 20 bp)
         feature_data = []
         for ref_id, ref_features in features.items():
             feature_data.append({
                 'Reference': ref_id[:20] + '...' if len(ref_id) > 20 else ref_id,
-                'GC Content': ref_features.get('gc_content', 0),
-                'Complexity': ref_features.get('complexity', 0),
-                'Repeat Content': ref_features.get('repeat_content', 0),
-                'Max Homopolymer': min(ref_features.get('max_homopolymer', 0), 20)  # Cap for viz
+                'GC Content (/100)': ref_features.get('gc_content', 0) / 100.0,
+                'Entropy (/2 bits)': ref_features.get('shannon_entropy', 0) / 2.0,
+                'Repeat Content (/100)': ref_features.get('repeat_content', 0) / 100.0,
+                'Max Homopolymer (/20 bp)': min(ref_features.get('max_homopolymer', 0), 20) / 20.0,
             })
         
         if not feature_data:
@@ -496,11 +591,12 @@ class InteractiveReportGenerator:
             x=df['Reference'],
             y=df.columns[1:],
             colorscale='Viridis',
+            zmin=0, zmax=1,
             showscale=True
         ))
         
         fig.update_layout(
-            title="Reference Sequence Features",
+            title="Reference Sequence Features (scaled 0-1)",
             title_font_size=16,
             height=400,
             xaxis_title="Reference Sequences",
@@ -521,7 +617,7 @@ class InteractiveReportGenerator:
         
         rec_items = []
         for i, rec in enumerate(all_recommendations, 1):
-            rec_items.append(f"<li>{rec}</li>")
+            rec_items.append(f"<li>{_e(rec)}</li>")
         
         rec_html = f"""
         <div class="section">
@@ -542,19 +638,19 @@ class InteractiveReportGenerator:
             <h2>Data Exports</h2>
             <div class="exports-grid">
                 <div class="export-item">
-                    <h4>Coverage Data</h4>
-                    <p>Per-position coverage depths</p>
-                    <a href="data/coverage_per_position.csv" class="download-btn">Download CSV</a>
+                    <h4>Coverage Depth</h4>
+                    <p>Run-length depth in bedGraph format</p>
+                    <a href="data/coverage.bedgraph" class="download-btn">Download bedGraph</a>
                 </div>
                 <div class="export-item">
                     <h4>Gap Regions</h4>
-                    <p>Coverage gaps in BED format</p>
+                    <p>Runs below the minimum depth in BED format</p>
                     <a href="data/gap_regions.bed" class="download-btn">Download BED</a>
                 </div>
                 <div class="export-item">
-                    <h4>Statistics Summary</h4>
-                    <p>Complete statistics in JSON format</p>
-                    <a href="data/statistics_summary.json" class="download-btn">Download JSON</a>
+                    <h4>All Results</h4>
+                    <p>Statistics, gaps, quality score and versions in JSON format</p>
+                    <a href="evaluation.json" class="download-btn">Download JSON</a>
                 </div>
             </div>
         </div>
@@ -562,24 +658,45 @@ class InteractiveReportGenerator:
         self.html_components.append(exports_html)
     
     def _create_methodology(self) -> None:
-        """Create methodology section."""
-        method_html = """
+        """Create the methodology section from the analysis parameters and the scorer's constants."""
+        params = self.coverage_stats.get('parameters', {})
+        weights = QualityScorer.DEFAULT_WEIGHTS
+        targets = QualityScorer.DEFAULT_BENCHMARKS
+        thresholds = QualityScorer.DEFAULT_THRESHOLDS
+        weight_items = "".join(
+            f"<li><strong>{name.replace('_', ' ').title()}</strong>: {weight:.0%}</li>"
+            for name, weight in weights.items())
+        method_html = f"""
         <div class="section">
             <h2>Methodology</h2>
             <div class="collapsible">
                 <button class="collapsible-header">Analysis Methodology</button>
                 <div class="collapsible-content">
                     <h4>Mapping</h4>
-                    <p>Oligos were mapped to reference sequences using pblat with specified identity and length thresholds.</p>
+                    <p>Oligos were mapped to the reference with {_e(self.mapper)}. Hits count when their
+                    BLAT identity is at least {params.get('min_identity', 'N/A')}% and their aligned length
+                    at least {params.get('min_length', 'N/A')} bp.</p>
                     
                     <h4>Coverage Calculation</h4>
-                    <p>Coverage depth was calculated at each reference position. Coverage breadth represents the percentage of reference positions with coverage >= minimum threshold.</p>
+                    <p>Depth is the number of aligned blocks over each reference position. Coverage breadth
+                    is the percentage of positions with depth at least {params.get('min_coverage', 'N/A')};
+                    it is also reported over the bases that are not N.</p>
                     
                     <h4>Gap Analysis</h4>
-                    <p>Coverage gaps were identified as contiguous regions with coverage below the minimum threshold. Gap features were analyzed including GC content, sequence complexity, and repetitive elements.</p>
+                    <p>Gaps are runs of positions below the minimum depth, at or above the minimum gap size.
+                    Each gap is characterised by GC content, Shannon entropy, duplicated 6-mers, homopolymer
+                    runs and N content.</p>
                     
                     <h4>Quality Scoring</h4>
-                    <p>Overall quality score combines coverage breadth, depth uniformity, mapping efficiency, and gap characteristics using weighted averaging.</p>
+                    <p>The overall score is a weighted sum of five component scores in 0-1:</p>
+                    <ul>{weight_items}</ul>
+                    <p>Targets: breadth {targets['coverage_breadth']:.0f}%, mean depth {targets['mean_depth']:.0f}x,
+                    uniformity (1 - Gini) {targets['depth_uniformity']:.1f}, mapping efficiency
+                    {targets['mapping_efficiency']:.0f}%, gaps at most {targets['gap_percentage']:.0f}% of the
+                    reference and {targets['largest_gap']:,} bp for the largest gap. The reference difficulty
+                    component is breadth relative to the breadth expected for the reference's difficulty.
+                    Categories: Excellent &gt;= {thresholds['excellent']}, Good &gt;= {thresholds['good']},
+                    Fair &gt;= {thresholds['fair']}, otherwise Poor.</p>
                 </div>
             </div>
         </div>

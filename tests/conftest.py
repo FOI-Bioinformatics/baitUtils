@@ -22,6 +22,14 @@ Baits (all 120 bp unless noted)
 Totals
     43 baits, 39 with identity >= 90 % and length >= 100
     chrA covered 2640 / 3000, chrB covered 1920 / 2000
+
+Subset (baits_subset): the same baits without A_09..A_12 and B_14, B_15
+    37 baits, 33 mapped
+    chrA hole 1080-1860 (780 bp), chrB tail 1680-2000 uncovered
+    chrA covered 2160 / 3000, chrB covered 1680 / 2000
+
+The fake mappers only emit rows for the baits present in the query FASTA,
+so the subset gets its own mapping.
 """
 
 import os
@@ -39,12 +47,20 @@ A_STARTS_2 = list(range(1380, 2940, 120))         # 13 baits
 B_STARTS = list(range(0, 1920, 120))              # 16 baits
 HOLE = ("chrA", 1080, 1380)
 
+SUBSET_DROPPED = {"A_09", "A_10", "A_11", "A_12", "B_14", "B_15"}
+
 EXPECTED = {
     "n_baits": 43,
     "n_mapped": 39,
     "n_unmapped": 4,
     "covered": {"chrA": 2640, "chrB": 1920},
     "hole": HOLE,
+    "subset": {
+        "n_baits": 37,
+        "n_mapped": 33,
+        "covered": {"chrA": 2160, "chrB": 1680},
+        "hole": ("chrA", 1080, 1860),
+    },
 }
 
 
@@ -148,10 +164,12 @@ def dataset(tmp_path_factory) -> dict:
 
     ref_fa = root / "reference.fa"
     bait_fa = root / "baits.fa"
+    subset_fa = root / "baits_subset.fa"
     psl = root / "hits.psl"
     paf = root / "hits.paf"
     _write_fasta(ref_fa, ref.items())
     _write_fasta(bait_fa, baits)
+    _write_fasta(subset_fa, [(name, seq) for name, seq in baits if name not in SUBSET_DROPPED])
     psl.write_text("\n".join(psl_rows) + "\n")
     paf.write_text("\n".join(paf_rows) + "\n")
 
@@ -159,6 +177,7 @@ def dataset(tmp_path_factory) -> dict:
         "root": root,
         "reference": ref_fa,
         "baits": bait_fa,
+        "baits_subset": subset_fa,
         "psl": psl,
         "paf": paf,
         "reference_seqs": ref,
@@ -167,17 +186,31 @@ def dataset(tmp_path_factory) -> dict:
     }
 
 
+# awk program: print the alignment rows whose query (column `col`) is a
+# sequence id of the FASTA given as the first file argument
+_FILTER_AWK = (
+    "FNR==NR { if (substr($0,1,1)==\">\") { split(substr($0,2), f, \" \"); ids[f[1]]=1 }; next } "
+    "($COL in ids)"
+)
+
+
 @pytest.fixture
 def fake_pblat(dataset, tmp_path, monkeypatch) -> Path:
-    """Put a fake pblat on PATH that writes the fixture PSL to its output argument."""
+    """
+    Put a fake pblat on PATH that writes the fixture PSL rows of the baits
+    present in the query FASTA (pblat's second positional argument) to the
+    output argument.
+    """
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()
     script = bin_dir / "pblat"
+    awk = _FILTER_AWK.replace("$COL", "$10")
     script.write_text(
-        "#!/bin/sh\n"
+        "#!/usr/bin/env bash\n"
         "if [ $# -eq 0 ]; then echo 'pblat - fake' >&2; exit 0; fi\n"
-        "for last; do :; done\n"
-        f"cp '{dataset['psl']}' \"$last\"\n"
+        "out=\"${@: -1}\"\n"
+        "query=\"${@: -2:1}\"\n"
+        f"awk '{awk}' \"$query\" '{dataset['psl']}' > \"$out\"\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
@@ -190,10 +223,12 @@ def fake_minimap2(dataset, tmp_path, monkeypatch) -> Path:
     bin_dir = tmp_path / "fakebin_mm2"
     bin_dir.mkdir()
     script = bin_dir / "minimap2"
+    awk = _FILTER_AWK.replace("$COL", "$1")
     script.write_text(
-        "#!/bin/sh\n"
+        "#!/usr/bin/env bash\n"
         "if [ \"$1\" = --version ]; then echo fake; exit 0; fi\n"
-        f"cat '{dataset['paf']}'\n"
+        "query=\"${@: -1}\"\n"
+        f"awk '{awk}' \"$query\" '{dataset['paf']}'\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")

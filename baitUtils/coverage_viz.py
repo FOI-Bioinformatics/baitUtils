@@ -296,10 +296,10 @@ class CoverageVisualizer:
             if metric == 'coverage_breadth':
                 row = [x / 100.0 for x in row]  # Already percentage
             elif metric in ['mean_depth', 'max_depth']:
-                max_val = max(row) if row else 1
+                max_val = max(row) if row and max(row) > 0 else 1
                 row = [x / max_val for x in row]
             else:  # gaps
-                max_val = max(row) if row else 1
+                max_val = max(row) if row and max(row) > 0 else 1
                 row = [1 - (x / max_val) for x in row]  # Invert so fewer gaps = better
             
             heatmap_data.append(row)

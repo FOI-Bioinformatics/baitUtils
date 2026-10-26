@@ -58,19 +58,30 @@ class QualityScorer:
     coverage_depth       0.20    Adequate and even depth aids capture efficiency
     gap_characteristics  0.20    Few, short gaps are easier to close
     mapping_efficiency   0.15    Oligos that do not map are wasted synthesis
-    reference_difficulty 0.15    Credit for hard references (repeats, extreme GC)
+    reference_difficulty 0.15    Breadth relative to what the reference allows:
+                                 credit for hard references (repeats, extreme GC)
 
     Target               Value   Meaning
     -------------------  ------  -----------------------------------------------
     coverage_breadth     95 %    Breadth at which breadth scores 1.0
     mean_depth           20 x    Mean depth at which depth adequacy scores 1.0
-    depth_uniformity     0.8     Target uniformity expressed as 1 - Gini
+    depth_uniformity     0.8     1 - Gini at which the uniformity half of the
+                                 depth component scores 1.0 (coverage_cv is used
+                                 only when no Gini coefficient is available)
     mapping_efficiency   90 %    Mapped fraction at which efficiency scores 1.0
     gap_percentage       2 %     Gap fraction at or below which gaps score 1.0
     largest_gap          1000 bp Largest gap at or below which it scores 1.0
 
-    Category thresholds on the overall score: Excellent >= 0.85, Good >= 0.70,
-    Fair >= 0.50, otherwise Poor.
+    The reference difficulty component is min(1, breadth / expected breadth),
+    where the expected breadth is the breadth target reduced by up to half
+    for a reference whose sequences all have extreme GC, high repeat content
+    and challenging features (difficulty index 1). The same breadth therefore
+    scores higher on a harder reference. Without a reference analysis the
+    reference counts as easy (difficulty 0).
+
+    Weight overrides are normalised to sum to 1, so the overall score stays
+    in 0-1. Category thresholds on the overall score: Excellent >= 0.85,
+    Good >= 0.70, Fair >= 0.50, otherwise Poor.
     """
 
     DEFAULT_WEIGHTS = {
@@ -122,6 +133,12 @@ class QualityScorer:
         self.weights = dict(self.DEFAULT_WEIGHTS)
         if weights:
             self.weights.update(weights)
+            total = sum(self.weights.values())
+            if total <= 0:
+                raise ValueError("Quality score weights must sum to a positive value")
+            if abs(total - 1.0) > 1e-9:
+                logging.info(f"Quality score weights sum to {total:.3f}; normalising to 1")
+                self.weights = {key: value / total for key, value in self.weights.items()}
         self.benchmarks = dict(self.DEFAULT_BENCHMARKS)
         if benchmarks:
             self.benchmarks.update(benchmarks)
@@ -188,10 +205,16 @@ class QualityScorer:
             return max(0.0, breadth / (target_breadth * 0.5) * 0.5)
     
     def _score_coverage_depth(self) -> float:
-        """Score coverage depth adequacy and uniformity."""
+        """
+        Score coverage depth adequacy (mean depth against the target) and
+        uniformity (1 - Gini against the uniformity target; the coefficient
+        of variation is the fallback when no Gini coefficient is available).
+        """
         mean_depth = self.coverage_stats.get('mean_depth', 0)
         depth_cv = self.coverage_stats.get('coverage_cv', float('inf'))
+        gini = self.coverage_stats.get('coverage_gini')
         target_depth = self.benchmarks['mean_depth']
+        target_uniformity = self.benchmarks['depth_uniformity']
         
         # Depth adequacy score
         if mean_depth >= target_depth:
@@ -201,8 +224,10 @@ class QualityScorer:
         else:
             depth_score = max(0.0, mean_depth / (target_depth * 0.5) * 0.5)
         
-        # Uniformity score (lower CV is better)
-        if depth_cv == float('inf') or depth_cv > 2.0:
+        # Uniformity score: 1 - Gini relative to the target, CV as fallback
+        if gini is not None and gini == gini and target_uniformity > 0:
+            uniformity_score = max(0.0, min(1.0, (1.0 - float(gini)) / target_uniformity))
+        elif depth_cv == float('inf') or depth_cv > 2.0:
             uniformity_score = 0.0
         elif depth_cv <= 0.5:  # Very uniform
             uniformity_score = 1.0
@@ -260,43 +285,43 @@ class QualityScorer:
         # Combined score
         return (gap_pct_score * 0.5 + largest_gap_score * 0.3 + gap_count_score * 0.2)
     
+    # Contribution of each difficulty indicator to the difficulty index
+    DIFFICULTY_WEIGHTS = {
+        'sequences_with_extreme_gc': 0.3,
+        'sequences_with_high_repeats': 0.2,
+        'challenging_sequences': 0.3,
+    }
+
+    def reference_difficulty_index(self) -> float:
+        """
+        Difficulty of the reference in 0-1 from the fractions of sequences
+        with extreme GC, high repeat content and challenging features
+        (analysis_summary of ReferenceAnalyzer). 0 without a reference
+        analysis.
+        """
+        summary = (self.reference_analysis or {}).get('analysis_summary') or {}
+        total = summary.get('total_sequences') or 0
+        if total <= 0:
+            return 0.0
+        weighted = sum(weight * min(1.0, summary.get(key, 0) / total)
+                       for key, weight in self.DIFFICULTY_WEIGHTS.items())
+        return max(0.0, min(1.0, weighted / sum(self.DIFFICULTY_WEIGHTS.values())))
+
+    def expected_breadth(self) -> float:
+        """Breadth (%) expected for this reference: the target, reduced by up to half for hard references."""
+        return self.benchmarks['coverage_breadth'] * (1.0 - 0.5 * self.reference_difficulty_index())
+
     def _score_reference_difficulty(self) -> float:
-        """Score based on reference sequence difficulty."""
-        if not self.reference_analysis:
-            return 0.7  # Neutral score if no reference analysis
-        
-        summary = self.reference_analysis.get('analysis_summary', {})
-        
-        total_sequences = summary.get('total_sequences', 1)
-        challenging_count = summary.get('challenging_sequences', 0)
-        
-        # Calculate difficulty factors
-        extreme_gc_fraction = summary.get('sequences_with_extreme_gc', 0) / total_sequences
-        high_repeat_fraction = summary.get('sequences_with_high_repeats', 0) / total_sequences
-        challenging_fraction = challenging_count / total_sequences
-        
-        # Score based on reference difficulty (inverse relationship)
-        difficulty_score = 1.0
-        
-        # Penalize extreme GC content
-        difficulty_score -= extreme_gc_fraction * 0.3
-        
-        # Penalize high repeat content
-        difficulty_score -= high_repeat_fraction * 0.2
-        
-        # Penalize challenging sequences
-        difficulty_score -= challenging_fraction * 0.3
-        
-        # Adjust based on actual coverage performance relative to difficulty
-        expected_difficulty = extreme_gc_fraction + high_repeat_fraction + challenging_fraction
-        actual_breadth = self.coverage_stats.get('coverage_breadth', 0) / 100
-        
-        if expected_difficulty > 0:
-            performance_ratio = actual_breadth / (1.0 - expected_difficulty * 0.5)
-            if performance_ratio > 1.0:  # Better than expected
-                difficulty_score = min(1.0, difficulty_score + (performance_ratio - 1.0) * 0.2)
-        
-        return max(0.0, min(1.0, difficulty_score))
+        """
+        Breadth relative to the breadth expected for the reference's
+        difficulty, so that a hard reference gets credit for the same
+        breadth. 1.0 when the expected breadth is reached.
+        """
+        expected = self.expected_breadth()
+        if expected <= 0:
+            return 1.0
+        actual = self.coverage_stats.get('coverage_breadth', 0)
+        return max(0.0, min(1.0, actual / expected))
     
     def _determine_category(self, overall_score: float) -> QualityCategory:
         """Determine quality category from overall score."""
@@ -366,8 +391,9 @@ class QualityScorer:
         # Reference difficulty recommendations
         if component_scores['reference_difficulty'] < 0.6:
             recommendations.append(
-                "Reference sequences contain challenging regions (extreme GC, repeats). "
-                "Consider specialized oligo design strategies for difficult regions."
+                f"Coverage breadth is well below the {self.expected_breadth():.0f}% expected for a "
+                f"reference of this difficulty (index {self.reference_difficulty_index():.2f}). "
+                "Consider specialized oligo design strategies for the difficult regions."
             )
         
         # Overall recommendations

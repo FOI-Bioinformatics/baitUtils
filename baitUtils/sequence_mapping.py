@@ -13,12 +13,15 @@ import os
 import sys
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import (add_argument, add_logging_arguments, logging_kwargs, percent,
+                                 positive_int, non_negative_int)
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.mapping_utils import (
     SequenceMapper,
     SequenceLoader,
     PSLParser,
     MappingResultsWriter,
+    alignment_format,
     create_output_directory,
     validate_identity_parameters
 )
@@ -42,10 +45,12 @@ class SequenceMappingProcessor:
             args: Parsed command-line arguments
         """
         # Set up logging
-        self._setup_logging(args.log)
+        ensure_logging(**logging_kwargs(args))
         
-        # Validate parameters
-        validate_identity_parameters(args.minIdentity, args.filterIdentity)
+        # Mapper-specific options and their defaults
+        resolve_mapper_options(args)
+        if args.mapper == 'pblat':
+            validate_identity_parameters(args.min_identity, args.filter_identity)
         
         # Create output directory
         create_output_directory(args.outdir)
@@ -70,10 +75,6 @@ class SequenceMappingProcessor:
         
         logging.info("Mapping complete.")
     
-    def _setup_logging(self, enable_debug: bool) -> None:
-        """Configure logging."""
-        ensure_logging(verbose=enable_debug)
-    
     def _load_input_data(self, args) -> tuple:
         """Load input sequences and validate target file."""
         logging.info("Reading input FASTA file...")
@@ -87,14 +88,14 @@ class SequenceMappingProcessor:
         logging.info("Mapping sequences against target genome...")
         return self.sequence_mapper.map_sequences(
             args.input,
-            args.query,
+            args.reference,
             args.outdir,
             args.outprefix,
             args.mapper,
             args.threads,
-            args.minMatch,
-            args.minScore,
-            args.minIdentity,
+            args.min_match,
+            args.min_score,
+            args.min_identity,
             args.minimap2_preset
         )
     
@@ -102,16 +103,16 @@ class SequenceMappingProcessor:
         """Parse mapping output and apply filters."""
         logging.info("Parsing mapping output...")
         
-        # Determine filtered output path
+        # Filtered output keeps the format of the mapper output
         mapping_filtered_output = os.path.join(
-            args.outdir, f"{args.outprefix}-mapping_filtered.psl"
+            args.outdir, f"{args.outprefix}-mapping_filtered.{alignment_format(mapping_output)}"
         )
         
         # Parse with filters
         mapped_sequences = self.psl_parser.parse_psl_file(
             mapping_output,
-            args.filterIdentity,
-            args.minMatchCount,
+            args.filter_identity,
+            args.min_match_count,
             mapping_filtered_output,
             args.min_length
         )
@@ -173,71 +174,87 @@ class SequenceMappingProcessor:
             self.results_writer.write_sequences_fasta(unmapped_sequences, seq_records, fasta_file)
 
 
-def percent(value: str) -> int:
-    """argparse type for an integer percentage between 0 and 100."""
-    number = int(value)
-    if not 0 <= number <= 100:
-        raise argparse.ArgumentTypeError(f"{value} is not between 0 and 100")
-    return number
+
+PBLAT_DEFAULTS = {'min_match': 2, 'min_score': 30, 'min_identity': 90.0}
+MINIMAP2_DEFAULT_PRESET = 'sr'
+
+
+def resolve_mapper_options(args) -> None:
+    """
+    Fill in the mapper-specific defaults and warn when an option of the
+    other mapper was given, since it would be silently ignored.
+    """
+    if args.mapper == 'pblat':
+        if args.minimap2_preset is not None:
+            logging.warning("--minimap2-preset has no effect with --mapper pblat")
+        args.minimap2_preset = MINIMAP2_DEFAULT_PRESET
+    else:
+        given = [f"--{key.replace('_', '-')}" for key in PBLAT_DEFAULTS if getattr(args, key) is not None]
+        if given:
+            logging.warning(f"{', '.join(given)} apply to pblat only and have no effect with --mapper minimap2")
+        if args.minimap2_preset is None:
+            args.minimap2_preset = MINIMAP2_DEFAULT_PRESET
+    for key, default in PBLAT_DEFAULTS.items():
+        if getattr(args, key) is None:
+            setattr(args, key, default)
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for sequence mapping."""
-    parser.add_argument('--version', action='version', 
-                       version=f"baitUtils sequence-mapping {__version__}")
+    parser.add_argument('--version', action='version', version=f"baitUtils map {__version__}")
     
     # Input/Output
-    parser.add_argument('-i', '--input', required=True,
-                       help='Input sequences FASTA file')
-    parser.add_argument('-q', '--query', required=True,
-                       help='Target genome FASTA file to map against')
-    parser.add_argument('-o', '--outdir', default='.',
-                       help='Output directory (default: current directory)')
+    add_argument(parser, '-i', '--input', required=True,
+                 help='Input sequences FASTA file')
+    add_argument(parser, '-r', '--reference', dest='reference', required=True, aliases=('-q', '--query'),
+                 help='Reference FASTA file to map against')
+    add_argument(parser, '-o', '--output', dest='outdir', default='.', aliases=('--outdir',),
+                 help='Output directory (default: current directory)')
     parser.add_argument('--prefix', dest='outprefix', default='out',
-                       help='Prefix for output file names (default: out)')
+                        help='Prefix for output file names (default: out)')
     
     # Mapping parameters
     parser.add_argument('--mapper', choices=['pblat', 'minimap2'], default='pblat',
-                       help='Mapping tool (default: pblat). minimap2 is run with -c and --minimap2-preset')
-    parser.add_argument('--minimap2-preset', dest='minimap2_preset', default='sr',
-                       help='minimap2 -x preset when --mapper minimap2 (default: sr)')
-    parser.add_argument('-X', '--threads', type=int, default=1,
-                       help='Number of threads (default: 1)')
+                        help='Mapping tool (default: pblat). minimap2 is run with -c and --minimap2-preset')
+    parser.add_argument('--minimap2-preset', dest='minimap2_preset', default=None,
+                        help=f'minimap2 -x preset when --mapper minimap2 (default: {MINIMAP2_DEFAULT_PRESET})')
+    add_argument(parser, '--threads', type=positive_int, default=1, aliases=('-X',),
+                 help='Number of threads (default: 1)')
     
     # pblat parameters
-    parser.add_argument('--minMatch', type=int, default=2,
-                       help='Number of tile matches (default: 2)')
-    parser.add_argument('--minScore', type=int, default=30,
-                       help='Minimum score (default: 30)')
-    parser.add_argument('--minIdentity', type=percent, default=90,
-                       help='Minimum sequence identity percent passed to pblat, 0-100 (default: 90)')
+    add_argument(parser, '--min-match', dest='min_match', type=int, default=None, aliases=('--minMatch',),
+                 help='pblat -minMatch, number of tile matches (default: 2)')
+    add_argument(parser, '--min-score', dest='min_score', type=int, default=None, aliases=('--minScore',),
+                 help='pblat -minScore (default: 30)')
+    add_argument(parser, '--min-identity', dest='min_identity', type=percent, default=None,
+                 aliases=('--minIdentity',),
+                 help='pblat -minIdentity, percent 0-100 (default: 90)')
     
     # Filtering parameters
-    parser.add_argument('--filterIdentity', type=percent, default=90,
-                       help='Filter mappings with identity below this percent, 0-100 '
-                            '(must be >= minIdentity, default: 90)')
-    parser.add_argument('--minMatchCount', type=int, default=0,
-                       help='Minimum number of matching bases required (default: 0)')
-    parser.add_argument('--min-length', dest='min_length', type=int, default=0,
-                       help='Minimum aligned length in bases for a hit to count (default: 0)')
-    parser.add_argument('--max-hits', dest='max_hits', type=int, default=None,
-                       help='Treat baits with more passing hits than this as unmapped '
-                            '(off-target filter; default: no limit)')
+    add_argument(parser, '--filter-identity', dest='filter_identity', type=percent, default=90.0,
+                 aliases=('--filterIdentity',),
+                 help='Keep hits with BLAT identity at or above this percent, 0-100 '
+                      '(with pblat, must be >= --min-identity; default: 90)')
+    add_argument(parser, '--min-match-count', dest='min_match_count', type=non_negative_int, default=0,
+                 aliases=('--minMatchCount',),
+                 help='Minimum number of matching bases required (default: 0)')
+    parser.add_argument('--min-length', dest='min_length', type=non_negative_int, default=0,
+                        help='Minimum aligned length in bases for a hit to count (default: 0)')
+    parser.add_argument('--max-hits', dest='max_hits', type=non_negative_int, default=None,
+                        help='Treat baits with more passing hits than this as unmapped '
+                             '(off-target filter; default: no limit)')
     
     # Output options
     parser.add_argument('--orient-to-reference', dest='orient_to_reference', action='store_true',
-                       help='Write mapped baits in reference orientation: reverse-complement '
-                            'baits whose best hit is on the minus strand')
-    parser.add_argument('--fasta-output', 
-                       choices=['mapped', 'unmapped', 'both', 'none'],
-                       default='mapped',
-                       help='Which sequences to include in FASTA output '
-                            '(default: mapped)')
+                        help='Write mapped baits in reference orientation: reverse-complement '
+                             'baits whose best hit is on the minus strand')
+    parser.add_argument('--fasta-output',
+                        choices=['mapped', 'unmapped', 'both', 'none'],
+                        default='mapped',
+                        help='Which sequences to include in FASTA output '
+                             '(default: mapped)')
     
-    # Logging
-    parser.add_argument('-l', '--log', action='store_true',
-                       help='Enable detailed logging')
-
+    add_logging_arguments(parser, verbose_aliases=('-l', '--log'))
 
 def main(args) -> None:
     """Main function for sequence mapping command."""

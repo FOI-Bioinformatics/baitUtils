@@ -92,7 +92,7 @@ class SequenceAnalyzer:
         temperature. Values near zero indicate little stable structure.
         Returns 'NA' when ViennaRNA is unavailable.
         """
-        if not HAS_VIENNA_RNA:
+        if not HAS_VIENNA_RNA or not sequence:
             return 'NA'
         try:
             md = RNA.md()
@@ -111,7 +111,7 @@ class SequenceAnalyzer:
         at the hybridization temperature. Returns 'NA' when ViennaRNA is
         unavailable.
         """
-        if not HAS_VIENNA_RNA:
+        if not HAS_VIENNA_RNA or not sequence:
             return 'NA'
         try:
             md = RNA.md()

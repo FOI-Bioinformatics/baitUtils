@@ -15,6 +15,8 @@ from pathlib import Path
 
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import add_argument, add_logging_arguments, logging_kwargs, positive_int, non_negative_int
+from baitUtils.coverage_evaluation import add_coverage_arguments
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.bedtools_support import require_bedtools
 from baitUtils.gap_filling_algorithm import MultiPassSelector
@@ -47,7 +49,7 @@ class GapFillingProcessor:
             args: Parsed command-line arguments
         """
         # Set up logging
-        self._setup_logging(args.log_level)
+        ensure_logging(**logging_kwargs(args))
         require_bedtools()
 
         import pybedtools
@@ -70,7 +72,7 @@ class GapFillingProcessor:
         args.temp_dir = work_dir
         # Set up analysis
         bed, mappings_dict, genome_file = self.coverage_orchestrator.setup_analysis(
-            args.psl, args.min_length, args.min_similarity, args.temp_dir, args.reference,
+            args.alignments, args.min_length, args.min_identity, args.temp_dir, args.reference,
             strand=args.strand
         )
         
@@ -80,13 +82,14 @@ class GapFillingProcessor:
             sys.exit(1)
         
         logging.info(f"Total oligos for selection: {count}")
+        if args.min_coverage > 1:
+            logging.warning(
+                f"--min-coverage {args.min_coverage:g}: the spacing constraint keeps selected oligos "
+                f"at least {args.spacing_distance} bp apart, so depth above 1 at a position can only "
+                "come from different oligos that start at least that far apart")
         
-        # Load reference sequences if provided
-        sequences = None
-        if args.reference:
-            sequences = self.sequence_loader.load_reference_sequences(
-                args.reference
-            )
+        # Reference sequences for the GC term of the oligo score
+        sequences = self.sequence_loader.load_reference_sequences(args.reference)
         
         # Create coverage calculator for multi-pass selection
         coverage_calc_func = self.coverage_orchestrator.create_coverage_calculator(
@@ -110,10 +113,6 @@ class GapFillingProcessor:
         
         # Write results
         self._write_results(args, selected_oligos, mappings_dict, genome_file)
-    
-    def _setup_logging(self, log_level: str = "INFO") -> None:
-        """Configure logging."""
-        ensure_logging(level=log_level)
     
     def _write_results(self, args, selected_oligos, mappings_dict, genome_file) -> None:
         """Write out all results and perform final coverage analysis."""
@@ -177,84 +176,46 @@ class GapFillingProcessor:
         # Uncovered FASTA
         if args.uncovered_fasta and args.reference:
             if not args.n_split_fasta:
-                logging.warning("--n_split_fasta not specified, skipping N-split output")
-            else:
-                SequenceProcessor.export_uncovered_fasta(
-                    uncovered,
-                    args.reference,
-                    args.uncovered_fasta,
-                    args.n_split_fasta,
-                    args.extend_region,
-                    args.uncovered_length_cutoff,
-                    args.min_oligo_length
-                )
+                logging.info("--n_split_fasta not given; writing the uncovered FASTA only")
+            SequenceProcessor.export_uncovered_fasta(
+                uncovered,
+                args.reference,
+                args.uncovered_fasta,
+                args.n_split_fasta,
+                args.extend_region,
+                args.uncovered_length_cutoff,
+                args.min_oligo_length
+            )
+
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """Add command-line arguments for gap filling."""
-    parser.add_argument('--version', action='version', 
-                       version=f"baitUtils gap-filling {__version__}")
-    
-    # Input files
-    parser.add_argument("--alignments", "--psl", dest="psl", type=Path, required=True,
-                       help="Alignment file: PSL from pblat or PAF from minimap2 -c (by extension)")
-    parser.add_argument("--forced_oligos", type=Path,
-                       help="File with oligo IDs that must be included")
-    parser.add_argument("--reference", type=Path, required=True,
-                       help="Reference FASTA; used for reference sizes, sequence-based scoring "
-                            "and export of uncovered regions")
-    
-    # Coverage parameters
-    parser.add_argument("--min_coverage", type=float, default=1.0,
-                       help="Minimum coverage required per base (default=1)")
+    parser.add_argument('--version', action='version', version=f"baitUtils fill {__version__}")
+    add_coverage_arguments(parser, "Minimum depth the selection aims for at every base (default: 1)")
     
     # Selection parameters
-    parser.add_argument("--spacing_distance", type=int, default=30,
-                       help="Min distance between start positions of selected oligos (default=30)")
-    parser.add_argument("--min_contribution", type=int, default=5,
-                       help="Minimum coverage contribution for selection (default=5)")
-    parser.add_argument("--max_passes", type=int, default=5,
-                       help="Maximum number of selection passes (default=5)")
-    parser.add_argument("--max_oligos_per_pass", type=int,
-                       help="Maximum number of oligos to select in each pass")
-    parser.add_argument("--stall_rounds", type=int, default=3,
-                       help="Number of rounds without improvement before stopping (default=3)")
+    add_argument(parser, "--spacing-distance", dest="spacing_distance", type=non_negative_int, default=30,
+                 aliases=("--spacing_distance",),
+                 help="Minimum distance between start positions of selected oligos (default: 30)")
+    add_argument(parser, "--min-contribution", dest="min_contribution", type=non_negative_int, default=5,
+                 aliases=("--min_contribution",),
+                 help="Minimum number of uncovered bases an oligo must add to be selected (default: 5)")
+    add_argument(parser, "--max-passes", dest="max_passes", type=positive_int, default=5,
+                 aliases=("--max_passes",),
+                 help="Maximum number of selection passes (default: 5)")
+    add_argument(parser, "--max-oligos-per-pass", dest="max_oligos_per_pass", type=positive_int,
+                 aliases=("--max_oligos_per_pass",),
+                 help="Maximum number of oligos to select in each pass (default: no limit)")
+    add_argument(parser, "--stall-rounds", dest="stall_rounds", type=positive_int, default=3,
+                 aliases=("--stall_rounds",),
+                 help="Passes without fewer uncovered regions before stopping (default: 3)")
     
-    # Filtering parameters
-    parser.add_argument("--min_length", type=int, default=100,
-                       help="Minimum mapping length to consider (default=100)")
-    parser.add_argument("--strand", choices=["both", "plus", "minus"], default="both",
-                       help="Count hits on both strands, or only plus or minus strand hits (default: both)")
-    parser.add_argument("--min_similarity", type=float, default=95.0,
-                       help="Minimum percent identity to consider (default=95.0)")
-    parser.add_argument("--uncovered_length_cutoff", type=int, default=0,
-                       help="Save uncovered stretches longer than this cutoff (default=0)")
-    
-    # Output files
+    # Output
     parser.add_argument("--output", type=Path, default=Path("selected_oligos.txt"),
-                       help="Output file path for selected oligos")
-    parser.add_argument("--coverage_out", type=Path,
-                       help="Output file for coverage data")
-    parser.add_argument("--longest_uncovered_out", type=Path,
-                       help="Output file for uncovered regions after selection")
-    parser.add_argument("--uncovered_fasta", type=Path,
-                       help="Output FASTA file for uncovered regions")
-    parser.add_argument("--n_split_fasta", type=Path,
-                       help="Output FASTA file for N-split regions")
-    
-    # FASTA export parameters
-    parser.add_argument("--extend_region", type=int, default=0,
-                       help="Number of bases to extend uncovered regions by on each side")
-    parser.add_argument("--min_oligo_length", type=int, default=120,
-                       help="Minimum oligo length for N-split regions (default=120)")
-    
-    # System parameters
-    parser.add_argument("--temp_dir", type=Path,
-                       help="Parent directory for the run's temporary directory (default: system temp)")
-    parser.add_argument("--log-level", "--log_level", dest="log_level",
-                       choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-                       default="INFO", help="Set logging level")
-
+                        help="Output file for the selected oligo IDs (default: selected_oligos.txt); "
+                             "the selected loci go to <output>_mappings.tsv")
+    add_logging_arguments(parser)
 
 def main(args) -> None:
     """Main function for gap filling command."""

@@ -15,11 +15,12 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 import tempfile
 import shutil
 
 from baitUtils._version import __version__
+from baitUtils.cli_utils import add_logging_arguments, logging_kwargs, positive_int, non_negative_int
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
@@ -69,24 +70,30 @@ def add_arguments(parser):
     )
     parser.add_argument(
         '--minimap2-preset',
-        default='sr',
+        default=None,
         help='minimap2 -x preset when --mapper minimap2 (default: sr)'
     )
     parser.add_argument(
         '--min-identity',
         type=float,
         default=90.0,
-        help='Minimum sequence identity for mapping (default: 90.0)'
+        help='Minimum BLAT percent identity for a hit to count; also passed to pblat (default: 90)'
     )
     parser.add_argument(
         '--min-length',
-        type=int,
+        type=non_negative_int,
         default=100,
-        help='Minimum mapping length (default: 100)'
+        help='Minimum aligned length in bases for a hit to count (default: 100)'
+    )
+    parser.add_argument(
+        '--max-hits',
+        type=non_negative_int,
+        default=None,
+        help='Treat baits with more passing hits than this as unmapped (off-target filter; default: no limit)'
     )
     parser.add_argument(
         '--threads',
-        type=int,
+        type=positive_int,
         default=1,
         help='Number of threads for mapping (default: 1)'
     )
@@ -108,15 +115,16 @@ def add_arguments(parser):
     # Gap analysis parameters
     parser.add_argument(
         '--min-gap-size',
-        type=int,
+        type=positive_int,
         default=100,
         help='Minimum gap size to report (default: 100)'
     )
     parser.add_argument(
         '--gap-extend',
-        type=int,
+        type=non_negative_int,
         default=0,
-        help='Extend gaps by N bases on each side for analysis (default: 0)'
+        help='Extend the sequence window used for gap features by N bases on each side; '
+             'gap coordinates are unchanged (default: 0)'
     )
     
     # Visualization parameters
@@ -128,7 +136,7 @@ def add_arguments(parser):
     )
     parser.add_argument(
         '--plot-dpi',
-        type=int,
+        type=positive_int,
         default=300,
         help='Plot resolution in DPI (default: 300)'
     )
@@ -153,7 +161,7 @@ def add_arguments(parser):
     )
     parser.add_argument(
         '--reference-analysis-window',
-        type=int,
+        type=positive_int,
         default=1000,
         help='Window size for reference sequence analysis (default: 1000)'
     )
@@ -168,33 +176,41 @@ def add_arguments(parser):
     parser.add_argument(
         '--keep-intermediates',
         action='store_true',
-        help='Keep intermediate mapping files'
+        help='Keep the mapper output under <output>/intermediates'
     )
     parser.add_argument(
-        '--quiet',
+        '--per-position-coverage',
         action='store_true',
-        help='Suppress progress messages'
+        help='Also write data/coverage_per_position.csv (one row per reference base)'
     )
     parser.add_argument(
-        '-l', '--log',
-        action='store_true',
-        help='Enable detailed logging'
+        '--temp-dir',
+        type=Path,
+        default=None,
+        help="Parent directory for the run's temporary directory (default: system temp)"
     )
+    add_logging_arguments(parser, verbose_aliases=('-l', '--log'))
 
 
 def main(args):
     """Main function for the 'evaluate' subcommand."""
-    setup_logging(args.log, args.quiet)
+    ensure_logging(**logging_kwargs(args))
     
     # Validate inputs
     validate_inputs(args)
+    if args.minimap2_preset is not None and args.mapper == 'pblat':
+        logging.warning("--minimap2-preset has no effect with --mapper pblat")
+    if args.minimap2_preset is None:
+        args.minimap2_preset = 'sr'
     
     # Create output directory
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Create temporary directory for intermediate files
-    with tempfile.TemporaryDirectory() as temp_dir:
+    if args.temp_dir:
+        Path(args.temp_dir).mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="baitUtils_evaluate_", dir=args.temp_dir) as temp_dir:
         temp_path = Path(temp_dir)
         
         logging.info("Starting comprehensive oligo set evaluation...")
@@ -213,10 +229,15 @@ def main(args):
             min_identity=args.min_identity,
             min_length=args.min_length,
             oligos_file=args.input,
-            strand=args.strand
+            strand=args.strand,
+            max_hits=args.max_hits
         )
         
         coverage_stats = analyzer.analyze()
+        hits_file = output_dir / "hits.tsv"
+        analyzer.hit_table.to_csv(hits_file, sep="\t", index=False)
+        logging.info(f"Per-bait hit table written to {hits_file}")
+        analyzer.export_coverage_data(output_dir, per_position=args.per_position_coverage)
         
         # Step 3: Perform gap analysis
         logging.info("Step 3/5: Performing gap analysis...")
@@ -226,7 +247,8 @@ def main(args):
             min_gap_size=args.min_gap_size,
             extend_bp=args.gap_extend,
             coverage_arrays=analyzer.coverage_arrays,
-            min_coverage=args.min_coverage
+            min_coverage=args.min_coverage,
+            reference_sequences=analyzer.sequences()
         )
         
         gap_analysis = gap_analyzer.analyze()
@@ -243,79 +265,79 @@ def main(args):
         
         visualizer.generate_all_plots()
         
-        # Phase 2 features - Extended analysis and reporting
-        reference_analysis = None
-        quality_score = None
-        benchmark_results = None
-        
-        if args.enable_html_report or args.enable_interactive_plots or args.enable_benchmarking:
-            # Step 5: Analyze reference sequences
-            logging.info("Step 5/8: Analyzing reference sequences...")
-            ref_analyzer = ReferenceAnalyzer(
-                reference_file=args.reference,
-                coverage_data=coverage_stats,
-                window_size=args.reference_analysis_window,
-                coverage_arrays=analyzer.coverage_arrays,
-                min_coverage=args.min_coverage
-            )
-            reference_analysis = ref_analyzer.analyze()
+        # Step 5: Analyze reference sequences
+        logging.info("Step 5/9: Analyzing reference sequences...")
+        ref_analyzer = ReferenceAnalyzer(
+            reference_file=args.reference,
+            coverage_data=coverage_stats,
+            window_size=args.reference_analysis_window,
+            coverage_arrays=analyzer.coverage_arrays,
+            min_coverage=args.min_coverage,
+            reference_sequences=analyzer.sequences()
+        )
+        reference_analysis = ref_analyzer.analyze()
 
-            # Step 6: Calculate quality scores
-            logging.info("Step 6/8: Calculating quality scores...")
-            quality_scorer = QualityScorer(
+        # Step 6: Calculate quality scores
+        logging.info("Step 6/9: Calculating quality scores...")
+        quality_scorer = QualityScorer(
+            coverage_stats=coverage_stats,
+            gap_analysis=gap_analysis,
+            reference_analysis=reference_analysis
+        )
+        quality_score = quality_scorer.calculate_quality_score()
+        
+        # Optional outputs
+        benchmark_results = None
+        benchmark_report = None
+        # Step 7: Run benchmarking analysis
+        if args.enable_benchmarking:
+            logging.info("Step 7/9: Running benchmark analysis...")
+            benchmark_analyzer = BenchmarkAnalyzer(
                 coverage_stats=coverage_stats,
                 gap_analysis=gap_analysis,
-                reference_analysis=reference_analysis
+                reference_analysis=reference_analysis,
+                quality_score=quality_score
             )
-            quality_score = quality_scorer.calculate_quality_score()
-            
-            # Step 7: Run benchmarking analysis
-            if args.enable_benchmarking:
-                logging.info("Step 7/9: Running benchmark analysis...")
-                benchmark_analyzer = BenchmarkAnalyzer(
-                    coverage_stats=coverage_stats,
-                    gap_analysis=gap_analysis,
-                    reference_analysis=reference_analysis,
-                    quality_score=quality_score
-                )
-                benchmark_results = benchmark_analyzer.run_full_benchmark()
-            
-            # Step 8: Generate interactive plots
-            if args.enable_interactive_plots:
-                logging.info("Step 8/9: Generating interactive plots...")
-                interactive_plotter = InteractivePlotter(
-                    coverage_stats=coverage_stats,
-                    gap_analysis=gap_analysis,
-                    reference_analysis=reference_analysis,
-                    quality_scores=quality_score.to_dict(),
-                    output_dir=output_dir
-                )
-                interactive_plotter.create_all_interactive_plots()
-            
-            # Step 9: Generate interactive HTML report
-            if args.enable_html_report:
-                logging.info("Step 9/9: Generating interactive HTML report...")
-                report_generator = InteractiveReportGenerator(
-                    coverage_stats=coverage_stats,
-                    gap_analysis=gap_analysis,
-                    reference_analysis=reference_analysis,
-                    quality_scores=quality_score.to_dict(),
-                    output_dir=output_dir,
-                    offline_plots=args.offline_plots
-                )
-                report_generator.generate_report()
+            benchmark_results = benchmark_analyzer.run_full_benchmark()
+            benchmark_report = benchmark_analyzer.generate_benchmark_report(benchmark_results)
         
-        # Step 5/Final: Generate standard reports
-        step_num = "5/5" if not (args.enable_html_report or args.enable_interactive_plots or args.enable_benchmarking) else "Final"
-        logging.info(f"Step {step_num}: Generating standard reports...")
+        # Step 8: Generate interactive plots
+        if args.enable_interactive_plots:
+            logging.info("Step 8/9: Generating interactive plots...")
+            interactive_plotter = InteractivePlotter(
+                coverage_stats=coverage_stats,
+                gap_analysis=gap_analysis,
+                reference_analysis=reference_analysis,
+                quality_scores=quality_score.to_dict(),
+                output_dir=output_dir
+            )
+            interactive_plotter.create_all_interactive_plots()
+        
+        # Step 9: Generate interactive HTML report
+        if args.enable_html_report:
+            logging.info("Step 9/9: Generating interactive HTML report...")
+            report_generator = InteractiveReportGenerator(
+                coverage_stats=coverage_stats,
+                gap_analysis=gap_analysis,
+                reference_analysis=reference_analysis,
+                quality_scores=quality_score.to_dict(),
+                output_dir=output_dir,
+                offline_plots=args.offline_plots,
+                mapper=args.mapper
+            )
+            report_generator.generate_report()
+    
+        # Final: text reports and evaluation.json
+        logging.info("Final step: Generating standard reports...")
         generate_reports(coverage_stats, gap_analysis, output_dir, args, benchmark_results,
-                         quality_score=quality_score, reference_analysis=reference_analysis)
+                         quality_score=quality_score, reference_analysis=reference_analysis,
+                         benchmark_report=benchmark_report)
         
         # Copy intermediate files if requested
         if args.keep_intermediates:
             intermediates_dir = output_dir / "intermediates"
             intermediates_dir.mkdir(exist_ok=True)
-            shutil.copy2(psl_file, intermediates_dir / "mapping.psl")
+            shutil.copy2(psl_file, intermediates_dir / psl_file.name)
             logging.info(f"Intermediate files saved to {intermediates_dir}")
     
     logging.info(f"Coverage evaluation complete! Results saved to {output_dir}")
@@ -323,10 +345,6 @@ def main(args):
     # Print enhanced summary to stdout
     print_summary(coverage_stats, gap_analysis, quality_score)
 
-
-def setup_logging(enable_debug: bool, quiet: bool) -> None:
-    """Configure logging (kept for direct calls of main)."""
-    ensure_logging(verbose=enable_debug, quiet=quiet)
 
 def validate_inputs(args) -> None:
     """Validate input files and parameters."""
@@ -375,8 +393,22 @@ def perform_mapping(args, temp_dir: Path) -> Path:
     return psl_file
 
 
+def reference_analysis_record(reference_analysis) -> Optional[Dict]:
+    """
+    The parts of the reference analysis worth keeping in the JSON output:
+    per-reference features and difficulty, the feature-coverage correlations
+    with breadth by GC decile, and the challenging windows. The per-window
+    feature table is left out because it is large.
+    """
+    if not reference_analysis:
+        return None
+    return {key: reference_analysis.get(key) for key in
+            ('sequence_features', 'challenging_regions', 'coverage_correlations', 'challenging_windows')}
+
+
 def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args,
-                     benchmark_results=None, quality_score=None, reference_analysis=None) -> None:
+                     benchmark_results=None, quality_score=None, reference_analysis=None,
+                     benchmark_report: Optional[str] = None) -> None:
     """Generate text reports and the machine-readable evaluation.json."""
     
     write_json({
@@ -389,10 +421,11 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
             'min_gap_size': args.min_gap_size,
         },
         'coverage_stats': coverage_stats,
-        'gap_analysis': {k: v for k, v in gap_analysis.items() if k != 'feature_analysis'},
+        'gap_analysis': {k: v for k, v in gap_analysis.items() if k not in ('feature_analysis', 'gap_features')},
         'quality_score': quality_score.to_dict() if quality_score is not None else None,
         'benchmarks': benchmark_results,
-        'reference_summary': (reference_analysis or {}).get('summary'),
+        'reference_summary': (reference_analysis or {}).get('analysis_summary'),
+        'reference_analysis': reference_analysis_record(reference_analysis),
     }, output_dir / "evaluation.json")
     
     # Coverage statistics report
@@ -454,75 +487,40 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
     with open(rec_file, 'w') as f:
         f.write("=== COVERAGE IMPROVEMENT RECOMMENDATIONS ===\n\n")
         
-        # Generate recommendations based on analysis
-        recommendations = generate_recommendations(coverage_stats, gap_analysis)
+        # The same recommendations as the HTML report: gap suggestions and quality scorer
+        recommendations = generate_recommendations(coverage_stats, gap_analysis, quality_score)
         
         for i, rec in enumerate(recommendations, 1):
             f.write(f"{i}. {rec}\n\n")
     
-    # Benchmarking report
+    # Benchmarking report (text rendered by the analyzer that ran the benchmark)
     if benchmark_results is not None:
+        if benchmark_report is None:
+            benchmark_report = BenchmarkAnalyzer(coverage_stats, gap_analysis, reference_analysis,
+                                                 quality_score).generate_benchmark_report(benchmark_results)
         benchmark_file = output_dir / "benchmark_analysis.txt"
         with open(benchmark_file, 'w') as f:
-            # Import here to avoid circular imports
-            from baitUtils.benchmark import BenchmarkAnalyzer
-            dummy_analyzer = BenchmarkAnalyzer({}, {}, {}, None)
-            report_content = dummy_analyzer.generate_benchmark_report(benchmark_results)
-            f.write(report_content)
+            f.write(benchmark_report)
     
     logging.info("Reports generated successfully")
 
 
-def generate_recommendations(coverage_stats: Dict, gap_analysis: Dict) -> List[str]:
-    """Generate improvement recommendations based on analysis."""
-    recommendations = []
-    
-    # Coverage breadth recommendations
-    breadth = coverage_stats.get('coverage_breadth', 0)
-    if breadth < 80:
-        recommendations.append(
-            f"Coverage breadth is only {breadth:.1f}%. Consider adding more oligos "
-            "to target uncovered regions, particularly the largest gaps."
-        )
-    
-    # Coverage depth recommendations  
-    mean_depth = coverage_stats.get('mean_depth', 0)
-    depth_std = coverage_stats.get('depth_std', 0)
-    if depth_std / mean_depth > 1.0 if mean_depth > 0 else True:
-        recommendations.append(
-            "Coverage depth is highly variable (high coefficient of variation). "
-            "Consider redistributing oligos for more uniform coverage."
-        )
-    
-    # Gap-based recommendations
-    total_gaps = gap_analysis.get('total_gaps', 0)
-    if total_gaps > 100:
-        recommendations.append(
-            f"Found {total_gaps} coverage gaps. Use 'baitUtils fill' command "
-            "to iteratively select additional oligos for gap closure."
-        )
-    
-    # Large gap recommendations
-    max_gap = gap_analysis.get('max_gap_size', 0)
-    if max_gap > 10000:
-        recommendations.append(
-            f"Largest gap is {max_gap:,} bp. Very large gaps may indicate "
-            "problematic reference regions requiring specialized oligo design."
-        )
-    
-    # Mapping efficiency recommendations
-    mapping_eff = coverage_stats.get('mapping_efficiency', 0)
-    if mapping_eff < 80:
-        recommendations.append(
-            f"Only {mapping_eff:.1f}% of oligos mapped successfully. "
-            "Consider reviewing oligo design parameters or reference sequence quality."
-        )
-    
+def generate_recommendations(coverage_stats: Dict, gap_analysis: Dict,
+                             quality_score=None) -> List[str]:
+    """
+    Recommendations for recommendations.txt: the gap analysis suggestions
+    followed by the quality scorer's recommendations, the same lists the
+    HTML report shows. The quality score is computed here when the caller
+    has none.
+    """
+    if quality_score is None:
+        quality_score = QualityScorer(coverage_stats, gap_analysis).calculate_quality_score()
+    recommendations: List[str] = []
+    for text in list(gap_analysis.get('suggestions', [])) + list(quality_score.recommendations):
+        if text not in recommendations:
+            recommendations.append(text)
     if not recommendations:
-        recommendations.append(
-            "Coverage quality appears good! No major issues identified."
-        )
-    
+        recommendations.append("Coverage quality appears good. No major issues identified.")
     return recommendations
 
 

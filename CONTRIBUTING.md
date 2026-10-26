@@ -32,9 +32,9 @@ Thank you for your interest in contributing to baitUtils! This document provides
 
 ### Testing
 - Write unit tests for new functionality
-- Ensure all existing tests pass:
+- Ensure all existing tests pass (the suite uses pytest fixtures):
   ```bash
-  python -m unittest discover tests/
+  python -m pytest tests/
   ```
 - Test coverage should be maintained above 80%
 

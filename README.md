@@ -43,14 +43,18 @@ scikit-learn, biopython (1.80 or later), plotly, scipy, tqdm.
 | `evaluate` | Mapping, coverage, gaps, quality score and HTML report       | pblat/minimap2  |
 | `compare`  | Evaluate several bait sets and test differences between them | pblat/minimap2  |
 
-`baitUtils <command> --help` lists all options. Two options sit in front of
-the command name:
+`baitUtils <command> --help` lists all options. Options are spelled in
+kebab-case; the spellings used before 0.6 (`--min_coverage`, `--minIdentity`,
+`-q` for the reference of `map`, `--psl`) still work but are not shown in the
+help. Every command accepts `-v/--verbose`, `--quiet` and `--log-level`.
+Two options sit in front of the command name (`--config` may also follow it):
 
 - `--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}` sets the logging level
-  for any command (per-command `-l`, `--verbose` and `--quiet` still apply).
+  for any command (a per-command `--verbose` or `--quiet` wins).
 - `--config file.json` supplies option defaults. The file maps command
-  names to option destinations, with a `common` block for options shared by
-  several commands; values on the command line override it.
+  names to option destinations (`--min-identity` is `min_identity`), with a
+  `common` block whose keys apply to every command that has them; values on
+  the command line override it.
 
 ```json
 {
@@ -64,7 +68,7 @@ the command name:
 
 ```bash
 baitUtils stats -i baits.fasta -o stats/ --filter \
-  --mingc 40 --maxgc 60 --mint 60 --maxt 80 --min-dimer-dg -15
+  --min-gc 40 --max-gc 60 --min-tm 60 --max-tm 80 --min-dimer-dg -15
 ```
 
 Writes `sequence_statistics.tsv` (one row per bait), `summary.txt` and, with
@@ -78,17 +82,18 @@ salt and strand concentrations from `--na`, `--dnac1`, `--dnac2`),
 `self_alignment_score`, `dinucleotide_bias`, `n_count`, `masked_count`,
 `masked_percentage`, `homopolymer_runs`, `max_homopolymer_length`.
 
-Filters: `--length` with `--complete`, `--noNs`, `--mingc/--maxgc`,
-`--mint/--maxt`, `--maxmask`, `--min-hairpin-dg`, `--min-dimer-dg`. Free
+Filters: `--length` with `--complete`, `--no-ns`, `--min-gc/--max-gc`,
+`--min-tm/--max-tm`, `--max-mask`, `--min-hairpin-dg`, `--min-dimer-dg`. Free
 energies are negative; a filter rejects baits whose value is below the given
-threshold.
+threshold. `--threads` sets the number of processes (default: all CPUs but
+one); `--sample N` analyses only the first N sequences.
 
 ### plot
 
 ```bash
 baitUtils plot -i stats/sequence_statistics.tsv -o plots/ \
   --columns gc_content melting_temperature hairpin_dg \
-  --plot_type histogram boxplot scatterplot --color kept
+  --plot-type histogram boxplot scatterplot --color kept
 ```
 
 Plot types: histogram, boxplot, violinplot, densityplot, boxenplot, swarmplot,
@@ -97,11 +102,11 @@ scatterplot, jointplot, heatmap, pairplot, pca. Output format with `--format`.
 ### map
 
 ```bash
-baitUtils map -i baits.fasta -q reference.fasta -o mapping/ --prefix run \
-  --threads 4 --minIdentity 90 --filterIdentity 95 --min-length 100 --max-hits 1
+baitUtils map -i baits.fasta -r reference.fasta -o mapping/ --prefix run \
+  --threads 4 --min-identity 90 --filter-identity 95 --min-length 100 --max-hits 1
 ```
 
-Runs the mapper (`-i` baits, `-q` reference) and writes, under `-o` with the
+Runs the mapper (`-i` baits, `-r` reference) and writes, under `-o` with the
 `--prefix`:
 
 - `run-mapping.psl` (pblat) or `run-mapping.paf` (minimap2) and `run-mapping_filtered.*`
@@ -112,9 +117,11 @@ Runs the mapper (`-i` baits, `-q` reference) and writes, under `-o` with the
   `--orient-to-reference`, baits whose best hit is on the minus strand are
   written reverse-complemented so that all baits are in reference orientation
 
-Identity follows BLAT's calculation, so `--filterIdentity` is on the same
-scale as pblat's `-minIdentity`. `--max-hits` treats baits with more passing
-hits as unmapped, which removes multi-mapping baits.
+Identity follows BLAT's calculation, so `--filter-identity` is on the same
+scale as pblat's `-minIdentity` (`--min-identity`, `--min-score` and
+`--min-match` are passed to pblat and warned about under minimap2).
+`--max-hits` treats baits with more passing hits as unmapped, which removes
+multi-mapping baits.
 
 `--mapper minimap2` runs minimap2 with base-level alignment (`-c`, so
 cigars and edit distances are available), secondary hits kept, and the
@@ -132,36 +139,42 @@ for small inputs `--threads 1` is the safer choice.
 
 ```bash
 baitUtils check --alignments mapping/run-mapping.psl --reference reference.fasta \
-  --min_coverage 1 --min_similarity 95 --min_length 100 \
-  --longest_uncovered_out uncovered.tsv --coverage_out coverage.tsv \
-  --uncovered_fasta uncovered.fasta --n_split_fasta uncovered_split.fasta
+  --min-coverage 1 --min-identity 95 --min-length 100 \
+  --longest-uncovered-out uncovered.tsv --coverage-out coverage.tsv \
+  --uncovered-fasta uncovered.fasta --n-split-fasta uncovered_split.fasta
 ```
 
 Converts PSL or PAF hits (aligned blocks) to BED, computes depth with bedtools and
-reports runs below `--min_coverage`. `--strand plus` or `--strand minus`
+reports runs below `--min-coverage` (default 1). Hits count when their BLAT
+identity is at least `--min-identity` (default 90) and their aligned length
+at least `--min-length` (default 100), the same defaults as `evaluate`. `--strand plus` or `--strand minus`
 restricts the hits to one target strand (also in `fill`, `evaluate` and
 `compare`; the default counts both). Reference sizes come from the FASTA, so
-regions after the last mapped bait are included. `--forced_oligos` restricts
-the check to a list of bait IDs. `--uncovered_fasta` exports the uncovered
-sequence, optionally extended by `--extend_region` and split at N runs into
-pieces of at least `--min_oligo_length`.
+regions after the last mapped bait are included. `--forced-oligos` restricts
+the check to a list of bait IDs. `--uncovered-fasta` exports the uncovered
+sequence, optionally extended by `--extend-region`; with `--n-split-fasta`
+the regions are also written split at N runs into pieces of at least
+`--min-oligo-length`. `--temp-dir` chooses where the run's temporary
+directory is created.
 
 ### fill
 
 ```bash
 baitUtils fill --alignments mapping/run-mapping.psl --reference reference.fasta \
-  --output selected.txt --min_coverage 1 --spacing_distance 30 \
-  --min_contribution 5 --max_passes 5
+  --output selected.txt --min-coverage 1 --spacing-distance 30 \
+  --min-contribution 5 --max-passes 5
 ```
 
 Greedy multi-pass selection: each pass scores every unselected mapping by
 its overlap with uncovered regions (weighted by region length, local
 difficulty and reference GC), and accepts candidates subject to
-`--spacing_distance` between start positions. Selection is per mapping, so a
+`--spacing-distance` between start positions. Selection is per mapping, so a
 bait with several loci contributes only the locus that was chosen. Stops at
-`--max_passes`, after `--stall_rounds` passes without improvement, or when the
-uncovered base count stops decreasing. Baits in `--forced_oligos` are always
-included.
+`--max-passes`, after `--stall-rounds` passes without improvement, or when the
+uncovered base count stops decreasing. Baits in `--forced-oligos` are always
+included. Because of the spacing rule, depth above 1 at a position can only
+come from different baits that start at least the spacing apart, so
+`--min-coverage` above 1 is reported with a warning.
 
 Writes the selected bait IDs to `--output`, the selected loci to
 `<output>_mappings.tsv`, and the same optional coverage and uncovered-region
@@ -172,7 +185,7 @@ outputs as `check`.
 ```bash
 baitUtils evaluate -i baits.fasta -r reference.fasta -o evaluation/ \
   --min-identity 95 --min-coverage 1 --target-coverage 10 --min-gap-size 100 \
-  --threads 4 --plot-format pdf --offline-plots
+  --max-hits 1 --threads 4 --plot-format pdf --offline-plots
 ```
 
 Output:
@@ -183,6 +196,11 @@ evaluation/
                                    versions of baitUtils, Python, libraries and
                                    external tools, and the full argument set
   coverage_statistics.txt          breadth, depth, mapping efficiency
+  hits.tsv                         per-bait hit table as written by map
+  data/coverage.bedgraph           run-length depth; data/gap_regions.bed
+                                   the runs below --min-coverage
+                                   (--per-position-coverage adds a CSV with
+                                   one row per base)
   gap_analysis.txt                 gap summary and largest gaps
   recommendations.txt
   benchmark_analysis.txt           observed metrics against design targets
@@ -190,6 +208,15 @@ evaluation/
   plots/                           static figures
   interactive_plots/               plotly figures
 ```
+
+`evaluation.json` also holds a `reference_analysis` block with the
+per-reference features, the challenging regions and windows, and the
+feature-coverage correlations described below.
+
+`--max-hits` treats baits with more passing hits as unmapped, as in `map`;
+`--temp-dir` chooses where the mapper output is written. The reference
+analysis and the quality score are always computed; `--no-html-report`,
+`--no-interactive-plots` and `--no-benchmarking` skip only those outputs.
 
 Mapping efficiency counts baits in the input FASTA. Gap coordinates come from
 the per-base coverage arrays. Hits are counted per strand (`strand_counts`,
@@ -203,12 +230,16 @@ homopolymer content and repetitive content (fraction of duplicated
 12-mers). Each window also carries its observed breadth and mean depth, and
 the report gives Spearman correlations between features and coverage across
 windows with p-values, breadth by GC decile, and the windows with low
-breadth and an extreme feature. All of this is linear in reference length. The quality score is a weighted sum of five
-component scores in 0 to 1 (breadth, depth, mapping efficiency, gaps,
-reference difficulty) with categories Excellent (0.85 or more), Good (0.70),
-Fair (0.50) and Poor. Weights and targets are documented in
-`QualityScorer` and can be overridden in code. `--no-html-report`,
-`--no-interactive-plots` and `--no-benchmarking` skip those steps.
+breadth and an extreme feature. All of this is linear in reference length.
+
+The quality score is a weighted sum of five component scores in 0 to 1:
+breadth (30 %), depth adequacy and uniformity (20 %, uniformity as 1 - Gini
+against a target of 0.8), gaps (20 %), mapping efficiency (15 %) and
+reference difficulty (15 %, the breadth relative to the breadth expected for
+the reference's difficulty, so a hard reference gets credit for the same
+breadth). Categories are Excellent (0.85 or more), Good (0.70), Fair (0.50)
+and Poor. Weights and targets are documented in `QualityScorer` and can be
+overridden in code; weight overrides are normalised to sum to 1.
 
 ### compare
 
@@ -218,9 +249,14 @@ baitUtils compare -r reference.fasta -o comparison/ \
   --significance-level 0.05 --multiple-comparison-correction fdr
 ```
 
-Evaluates each set as `evaluate` does and writes `comparison.json`,
+Evaluates each set as `evaluate` does (with the same `--min-gap-size`,
+`--gap-extend`, `--reference-analysis-window`, `--max-hits` and `--temp-dir`
+options) and writes `comparison.json`,
 `comparison_matrix.csv`, `pairwise_comparisons.csv`,
 `gap_overlap_analysis.txt`, `comparative_analysis_report.html` and plots.
+Sets are ranked by a composite score in 0 to 1: quality score (40 %),
+coverage breadth (25 %), mapping efficiency (20 %) and a gap term that falls
+from 1 at no gaps to 0 at 100 gaps (15 %).
 
 Statistical tests are computed on observed data:
 

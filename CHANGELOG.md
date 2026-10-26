@@ -1,5 +1,179 @@
 # Changelog
 
+## Unreleased
+
+The remediation plan in `docs/code_audit_2026-10.md` (finding numbers below
+refer to that report).
+
+### Changed (performance and tests)
+
+- Per-reference strand counts are gathered in one pass over the hits
+  instead of one pass per reference (F-29).
+- `evaluate` and `compare` read the reference FASTA once:
+  `CoverageAnalyzer.sequences()` hands the loaded sequences to `GapAnalyzer`
+  and `ReferenceAnalyzer` (both accept `reference_sequences`), and the gap
+  analysis upper-cases only the gap slices it characterises instead of a
+  copy of the whole reference (F-30).
+- `plot --plot-type pca` drops rows with missing values (with a warning)
+  instead of aborting (F-39).
+- Test fixtures: the fake pblat and minimap2 only emit hits for the baits
+  in the query FASTA, and the dataset has a second bait set
+  (`baits_subset`), so `compare` is tested with sets that differ and the
+  statistical tests, the Friedman path and the report's p-values are
+  exercised end to end. The gap filling algorithm, the fake minimap2 `map`
+  run and the plot command's PCA and SVG paths have tests.
+
+### Changed (quality score and packaging)
+
+- The uniformity half of the depth component is `1 - Gini` relative to the
+  `depth_uniformity` target (0.8), as documented; the coefficient of
+  variation is used only when no Gini coefficient is available (F-19).
+- The reference difficulty component is the breadth relative to the breadth
+  expected for the reference's difficulty (the breadth target, reduced by up
+  to half for the hardest references), so the same breadth scores higher on
+  a harder reference, as the docstring always said; without a reference
+  analysis the reference counts as easy instead of scoring a fixed 0.7
+  (F-20, F-45).
+- Weight overrides are normalised to sum to 1, so the overall score stays
+  in 0-1 (F-21).
+- `recommendations.txt` lists the gap analysis suggestions and the quality
+  scorer's recommendations, the same lists as the HTML report, instead of a
+  third set of thresholds (F-43); `benchmark_analysis.txt` carries the
+  overall score header (F-44); the benchmark reports uniformity as not
+  applicable instead of a fabricated 0.5 when no Gini coefficient exists
+  (F-47).
+- The evaluate report's methodology section is generated from the analysis
+  parameters, the mapper used and the scorer's constants (F-40).
+- Packaging moved to `pyproject.toml` (`setup.py` is a shim); `tqdm` is no
+  longer a dependency; `requirements.txt` matches the project dependencies
+  and `pybedtools` is the `bedtools` extra; matplotlib >= 3.6 and
+  seaborn >= 0.12 are required, and the category plots pass `hue` so that
+  seaborn 0.14 keeps working; Python 3.13 is tested and declared (F-37,
+  F-38, F-69).
+- CI uses current action versions, tests Python 3.13 and installs bedtools
+  on Ubuntu so that the `check` and `fill` end-to-end tests run (F-70).
+
+### Changed (command line)
+
+- Every option is spelled in kebab-case. The previous spellings still work
+  as hidden aliases, so existing scripts keep running, but the help text,
+  the documentation and the configuration-file keys use the new names:
+  - `stats`: `--no-ns`, `--min-gc`, `--max-gc`, `--min-tm`, `--max-tm`,
+    `--max-mask`, `--threads` (was `-p/--processes`; `-p` remains),
+    `-o/--output` (was `--outdir`; the configuration key stays `outdir`).
+    Configuration keys: `no_ns`, `min_gc`, `max_gc`, `min_tm`, `max_tm`,
+    `max_mask`, `threads`.
+  - `plot`: `--plot-type`, `-o/--output`.
+  - `map`: `-r/--reference` (was `-q/--query`), `--threads` (was `-X`),
+    `--min-match`, `--min-score`, `--min-identity`, `--filter-identity`,
+    `--min-match-count` (were camelCase), `-o/--output`. Configuration keys
+    are the snake_case forms (`min_identity`, `filter_identity`, ...).
+  - `check` and `fill`: `--alignments` (`--psl` remains an alias),
+    `--forced-oligos`, `--min-coverage`, `--min-length`, `--min-identity`
+    (was `--min_similarity`), `--uncovered-length-cutoff`, `--coverage-out`,
+    `--longest-uncovered-out`, `--uncovered-fasta`, `--n-split-fasta`,
+    `--extend-region`, `--min-oligo-length`, `--temp-dir`; `fill` also
+    `--spacing-distance`, `--min-contribution`, `--max-passes`,
+    `--max-oligos-per-pass`, `--stall-rounds`. Configuration key for the
+    alignment file: `alignments` (was `psl`); for identity: `min_identity`.
+  - Every command accepts `-v/--verbose`, `--quiet` and `--log-level`
+    (`-l/--log` remain aliases of `--verbose` where they existed), so
+    `common.log_level` in a configuration file applies everywhere (F-9).
+- Defaults aligned across commands (F-33): `check --min-coverage` is 1
+  (was 10); `check` and `fill --min-identity` are 90 (was 95), the values
+  `evaluate` and `map` use. `check --longest-uncovered-out` no longer
+  defaults to a file in the working directory (F-64).
+- `--config` is parsed with argparse, so `--config=file.json` works, the
+  option may follow the command, and a missing file name is a usage error
+  (F-8). Sections that are not commands and `common` keys that no command
+  has are reported; a `common` key is applied silently to the commands
+  that have it (F-9).
+- Numeric options are validated by the parser (`--threads` at least 1,
+  `--min-length` not negative, `--min-gap-size`, `--plot-dpi` and the
+  analysis window at least 1).
+
+### Added
+
+- `evaluate` and `compare`: `--max-hits` (off-target filter as in `map`),
+  `--temp-dir`; `compare`: `--min-gap-size`, `--gap-extend` and
+  `--reference-analysis-window`, which were fixed at the `evaluate`
+  defaults. `evaluate` writes the per-bait hit table (`hits.tsv`), a
+  run-length `data/coverage.bedgraph` and `data/gap_regions.bed`, and with
+  `--per-position-coverage` the per-base CSV; the report's data links point
+  to these files (F-17).
+- `map` warns when a pblat-only option (`--min-identity`, `--min-score`,
+  `--min-match`) is given with `--mapper minimap2`, and when
+  `--minimap2-preset` is given with pblat (also in `evaluate` and
+  `compare`); the `--filter-identity >= --min-identity` check applies to
+  pblat only (F-26). The filtered alignment file keeps the mapper's format
+  (`-mapping_filtered.paf` for minimap2), and `--keep-intermediates` keeps
+  the mapper output under its own name (F-25).
+- `fill` warns that `--min-coverage` above 1 cannot be reached by stacking
+  baits because of the spacing rule (F-31).
+- `evaluate` always computes the reference analysis and the quality score;
+  `--no-html-report`, `--no-interactive-plots` and `--no-benchmarking` skip
+  only those outputs (F-18).
+- `pytest.ini` is read (its section header was the setup.cfg form) and
+  CLAUDE.md and CONTRIBUTING.md describe the pytest suite (F-34, F-35,
+  F-36).
+
+### Fixed
+
+- `evaluate` and `compare` no longer crash on a single extreme-GC reference
+  (division by zero in the reference difficulty score, F-1) or when no hit
+  passes the identity, length and strand filters (coverage heatmap, F-2).
+- `stats` no longer segfaults on an empty FASTA record when ViennaRNA is
+  installed; empty sequences get `NA` energies (F-3).
+- `compare` treated the 0-1 quality score as 0-10: the ranking now combines
+  terms that are all in 0-1 (quality 40 %, breadth 25 %, mapping efficiency
+  20 %, gap term 15 %), so the composite score is itself in 0-1; the HTML
+  report prints the score on its own scale instead of "x/10" and the radar
+  plot no longer divides it by 10 (F-4).
+- The evaluate HTML report takes the quality category from the scorer
+  (Excellent >= 0.85, Good >= 0.70, Fair >= 0.50) instead of its own
+  0.8/0.6/0.4 thresholds, so report and `evaluation.json` agree (F-10).
+- `evaluation.json` now contains `reference_summary` (it was always null
+  because of a key mismatch) and a `reference_analysis` block with the
+  per-reference features, challenging regions, the feature-coverage
+  Spearman correlations with breadth by GC decile, and the challenging
+  windows; `comparison.json` carries the same block for the shared
+  reference. The evaluate HTML report gains the correlation, GC-decile and
+  challenging-window tables (F-5).
+- The gap analysis result includes `gap_features`, so the gap-feature panels
+  of `detailed_gap_analysis.html` are populated; the reference feature
+  heatmap of the HTML report reads `shannon_entropy` and scales each row to
+  0-1 (F-22).
+- The fabricated "Quality Trends" panel and the always-empty "Theoretical
+  vs Actual" panel of `quality_assessment.html` are replaced by the overall
+  score against the category thresholds (F-7).
+- `compare --plot-format` and `--plot-dpi` are kept: the report embeds the
+  plots generated by the command instead of regenerating them with default
+  settings; SVG is embedded with its own media type and PDF is linked (F-6).
+- Statistical test interpretations are written from the adjusted p-value,
+  so text, stars and colour agree; star labels and the legend follow
+  `--significance-level` (F-12, F-13).
+- The paired per-reference gap-count test counts the gaps of the gap
+  analysis (at or above `--min-gap-size`), the same definition as
+  `total_gaps` and the gap-size test (F-14).
+- Gap overlap between sets uses half-open intervals, so gaps that only touch
+  are not reported as overlapping (F-15); links to the interactive plots in
+  the comparative report point to their directory (F-16).
+- Set names, reference ids and test text are HTML-escaped in both reports
+  (F-11).
+- Infinite values are written as `null` in the JSON outputs instead of the
+  non-standard `Infinity` token (F-28).
+- `stats` exits with status 1 when the input file is missing (F-27).
+- `check --uncovered_fasta` and `fill --uncovered_fasta` write the uncovered
+  FASTA without `--n_split_fasta`; the N-split file is optional (F-24).
+- The comparative report's methodology section is generated from the
+  scorer's weights and thresholds and names the tests that are run; its
+  grade colours apply to the Excellent/Good/Fair/Poor categories (F-40).
+
+### Added
+
+- `docs/code_audit_2026-10.md`: code audit with gap and switch analysis.
+- `tests/test_phase1_regressions.py`.
+
 ## 0.5.1 (2026-09-25)
 
 ### Added

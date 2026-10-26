@@ -87,22 +87,25 @@ class TestEvaluateCommand(unittest.TestCase):
     def test_generate_recommendations(self):
         """Test recommendation generation."""
         coverage_stats = {
-            'coverage_breadth': 75.0,
+            'coverage_breadth': 55.0,
             'mean_depth': 8.5,
-            'depth_std': 12.0,
+            'coverage_gini': 0.6,
             'mapping_efficiency': 85.0
         }
         
         gap_analysis = {
             'total_gaps': 150,
-            'max_gap_size': 15000
+            'max_gap_size': 15000,
+            'gap_percentage': 45.0,
+            'suggestions': ["High number of gaps (150). Consider using 'baitUtils fill'."]
         }
         
         recommendations = generate_recommendations(coverage_stats, gap_analysis)
         
         self.assertIsInstance(recommendations, list)
-        self.assertTrue(len(recommendations) > 0)
-        self.assertIn('coverage breadth', recommendations[0].lower())
+        # Gap analysis suggestions come first, then the quality scorer's recommendations
+        self.assertIn('gaps', recommendations[0].lower())
+        self.assertTrue(any('coverage breadth' in rec.lower() for rec in recommendations))
     
     def test_print_summary(self):
         """Test summary printing."""
@@ -426,32 +429,35 @@ class TestIntegrationScenarios(unittest.TestCase):
         coverage_stats = {
             'coverage_breadth': 95.0,
             'mean_depth': 15.0,
-            'depth_std': 3.0,
+            'coverage_gini': 0.2,
             'mapping_efficiency': 92.0
         }
         
         gap_analysis = {
             'total_gaps': 5,
-            'max_gap_size': 200
+            'max_gap_size': 200,
+            'gap_percentage': 1.0
         }
         
         recommendations = generate_recommendations(coverage_stats, gap_analysis)
         
-        # Should indicate good coverage
-        self.assertTrue(any('good' in rec.lower() for rec in recommendations))
+        # Nothing to improve: the single entry says so
+        self.assertEqual(len(recommendations), 1)
+        self.assertIn('good', recommendations[0].lower())
     
     def test_low_coverage_scenario(self):
         """Test scenario with poor coverage."""
         coverage_stats = {
             'coverage_breadth': 45.0,
             'mean_depth': 3.0,
-            'depth_std': 8.0,
+            'coverage_cv': 1.5,
             'mapping_efficiency': 60.0
         }
         
         gap_analysis = {
             'total_gaps': 200,
-            'max_gap_size': 25000
+            'max_gap_size': 25000,
+            'gap_percentage': 55.0
         }
         
         recommendations = generate_recommendations(coverage_stats, gap_analysis)
@@ -459,7 +465,8 @@ class TestIntegrationScenarios(unittest.TestCase):
         # Should suggest improvements
         self.assertTrue(len(recommendations) > 2)
         self.assertTrue(any('breadth' in rec.lower() for rec in recommendations))
-        self.assertTrue(any('gaps' in rec.lower() for rec in recommendations))
+        self.assertTrue(any('gap' in rec.lower() for rec in recommendations))
+        self.assertTrue(any('mapping efficiency' in rec.lower() for rec in recommendations))
 
 
 if __name__ == '__main__':

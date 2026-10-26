@@ -7,6 +7,7 @@ converted to plain Python types.
 
 import dataclasses
 import json
+import math
 import shutil
 import subprocess
 from enum import Enum
@@ -36,8 +37,8 @@ def to_jsonable(value: Any) -> Any:
     if isinstance(value, (np.integer,)):
         return int(value)
     if isinstance(value, (np.floating,)):
-        return None if np.isnan(value) else float(value)
-    if isinstance(value, float) and value != value:
+        return None if not np.isfinite(value) else float(value)
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, (np.bool_,)):
         return bool(value)

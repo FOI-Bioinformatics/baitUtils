@@ -182,8 +182,7 @@
             border-top: 2px solid #e9ecef;
             color: #6c757d;
         }
-        .grade-a { color: #28a745; font-weight: bold; }
-        .grade-b { color: #17a2b8; font-weight: bold; }
-        .grade-c { color: #ffc107; font-weight: bold; }
-        .grade-d { color: #fd7e14; font-weight: bold; }
-        .grade-f { color: #dc3545; font-weight: bold; }
+        .grade-excellent { color: #28a745; font-weight: bold; }
+        .grade-good { color: #17a2b8; font-weight: bold; }
+        .grade-fair { color: #ffc107; font-weight: bold; }
+        .grade-poor { color: #dc3545; font-weight: bold; }

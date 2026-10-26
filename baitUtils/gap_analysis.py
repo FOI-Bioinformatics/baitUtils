@@ -31,7 +31,8 @@ class GapAnalyzer:
         min_gap_size: int = 100,
         extend_bp: int = 0,
         coverage_arrays: Optional[Dict[str, np.ndarray]] = None,
-        min_coverage: float = 1.0
+        min_coverage: float = 1.0,
+        reference_sequences: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize the gap analyzer.
@@ -45,6 +46,9 @@ class GapAnalyzer:
                 Gap coordinates are taken from these arrays; without them no
                 gaps can be located.
             min_coverage: Depth below which a position counts as uncovered
+            reference_sequences: Sequences already loaded (for example by
+                CoverageAnalyzer.sequences()); when given, reference_file is
+                not read again
         """
         self.coverage_data = coverage_data
         self.reference_file = Path(reference_file)
@@ -54,7 +58,7 @@ class GapAnalyzer:
         self.min_coverage = min_coverage
         
         # Data storage
-        self.reference_sequences = {}
+        self.reference_sequences: Dict[str, str] = dict(reference_sequences) if reference_sequences else {}
         self.gaps = []
         self.gap_features = []
         self.analysis_results = {}
@@ -90,11 +94,14 @@ class GapAnalyzer:
         return self.analysis_results
     
     def _load_reference_sequences(self) -> None:
-        """Load reference sequences from FASTA file."""
+        """Load reference sequences from FASTA file unless they were supplied."""
+        if self.reference_sequences:
+            logging.info(f"Using {len(self.reference_sequences)} reference sequences already loaded")
+            return
         try:
             with open(self.reference_file, 'r') as handle:
                 for record in SeqIO.parse(handle, 'fasta'):
-                    self.reference_sequences[record.id] = str(record.seq).upper()
+                    self.reference_sequences[record.id] = str(record.seq)
             
             logging.info(f"Loaded {len(self.reference_sequences)} reference sequences for gap analysis")
             
@@ -139,7 +146,9 @@ class GapAnalyzer:
             if ref_id not in self.reference_sequences:
                 continue
             
-            sequence = self.reference_sequences[ref_id][start:end]
+            # Features are computed on the upper-cased gap slice; the whole
+            # reference is kept as loaded so that it can be shared
+            sequence = self.reference_sequences[ref_id][start:end].upper()
             
             # Calculate sequence features
             features = self._calculate_sequence_features(sequence)
@@ -284,6 +293,7 @@ class GapAnalyzer:
                 'size_distribution': {},
                 'largest_gaps': [],
                 'gaps': [],
+                'gap_features': [],
                 'feature_analysis': {}
             }
             return
@@ -301,7 +311,8 @@ class GapAnalyzer:
             'median_gap_size': np.median(gap_lengths),
             'max_gap_size': max(gap_lengths),
             'min_gap_size': min(gap_lengths),
-            'gaps': [dict(gap) for gap in self.gaps]
+            'gaps': [dict(gap) for gap in self.gaps],
+            'gap_features': [dict(f) for f in self.gap_features],
         }
         
         # Gap size distribution

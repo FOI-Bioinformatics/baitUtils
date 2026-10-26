@@ -83,9 +83,13 @@ class BenchmarkAnalyzer:
 
     def benchmark_depth_uniformity(self) -> BenchmarkResult:
         """Observed uniformity (1 - Gini) against the target uniformity."""
-        gini = float(self.coverage_stats.get('coverage_gini', 0.5))
-        actual = 1.0 - gini
+        gini = self.coverage_stats.get('coverage_gini')
         target = float(self.targets['depth_uniformity'])
+        if gini is None or gini != gini:
+            # No covered base, or statistics without the Gini coefficient
+            return BenchmarkResult(float('nan'), target, float('nan'), float('nan'), "Not applicable",
+                                   ["Depth uniformity could not be assessed (no Gini coefficient)"])
+        actual = 1.0 - float(gini)
         ratio = min(1.0, actual / target) if target > 0 else 1.0
         potential = max(0.0, target - actual)
 
@@ -134,6 +138,10 @@ class BenchmarkAnalyzer:
 
         for metric, result in benchmarks.items():
             lines.append(f"{metric.replace('_', ' ').title()}:")
+            if result.actual_score != result.actual_score:
+                lines.append(f"  {result.category}")
+                lines.append("")
+                continue
             lines.append(f"  Observed:    {result.actual_score:8.2f}")
             lines.append(f"  Target:      {result.target:8.2f}")
             lines.append(f"  Achieved:    {result.efficiency_ratio * 100:8.1f}%")

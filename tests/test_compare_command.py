@@ -212,7 +212,7 @@ class TestCompareCommandArguments(unittest.TestCase):
         self.assertEqual(args.plot_format, 'png')
         self.assertEqual(args.plot_dpi, 300)
         self.assertFalse(args.quiet)
-        self.assertFalse(args.log)
+        self.assertFalse(args.verbose)
     
     def test_argument_overrides(self):
         """Test argument value overrides."""
