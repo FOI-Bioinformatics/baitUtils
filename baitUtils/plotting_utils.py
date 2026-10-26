@@ -55,7 +55,7 @@ class PlotGenerator:
         """Generate and save a boxplot for the specified column."""
         plt.figure(figsize=self.figure_size)
         if color_col:
-            sns.boxplot(data=df, y=column, x=color_col, palette="Set1")
+            sns.boxplot(data=df, y=column, x=color_col, hue=color_col, legend=False, palette="Set1")
             plt.xlabel(color_col)
         else:
             sns.boxplot(data=df, y=column, color='green')
@@ -73,7 +73,7 @@ class PlotGenerator:
         """Generate and save a violin plot for the specified column."""
         plt.figure(figsize=self.figure_size)
         if color_col:
-            sns.violinplot(data=df, y=column, x=color_col, palette="Set1", inner="quartile")
+            sns.violinplot(data=df, y=column, x=color_col, hue=color_col, legend=False, palette="Set1", inner="quartile")
             plt.xlabel(color_col)
         else:
             sns.violinplot(data=df, y=column, color='orange', inner="quartile")
@@ -108,7 +108,7 @@ class PlotGenerator:
         """Generate and save a boxen plot for the specified column."""
         plt.figure(figsize=self.figure_size)
         if color_col:
-            sns.boxenplot(data=df, y=column, x=color_col, palette="Set1")
+            sns.boxenplot(data=df, y=column, x=color_col, hue=color_col, legend=False, palette="Set1")
             plt.xlabel(color_col)
         else:
             sns.boxenplot(data=df, y=column, color='brown')
@@ -126,7 +126,7 @@ class PlotGenerator:
         """Generate and save a swarm plot for the specified column."""
         plt.figure(figsize=self.figure_size)
         if color_col:
-            sns.swarmplot(data=df, y=column, x=color_col, palette="Set1")
+            sns.swarmplot(data=df, y=column, x=color_col, hue=color_col, legend=False, palette="Set1")
             plt.xlabel(color_col)
         else:
             sns.swarmplot(data=df, y=column, color='cyan')

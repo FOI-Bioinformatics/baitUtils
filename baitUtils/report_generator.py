@@ -46,7 +46,8 @@ class InteractiveReportGenerator:
         quality_scores: Dict[str, Any],
         reference_analysis: Dict[str, Any],
         output_dir: Path,
-        offline_plots: bool = False
+        offline_plots: bool = False,
+        mapper: str = "pblat"
     ):
         """
         Initialize the interactive report generator.
@@ -57,6 +58,8 @@ class InteractiveReportGenerator:
             quality_scores: Quality scores from QualityScorer
             reference_analysis: Reference sequence analysis results
             output_dir: Directory to save the report
+            offline_plots: embed plotly.js instead of loading it from a CDN
+            mapper: name of the mapper used, for the methodology section
         """
         self.coverage_stats = coverage_stats
         self.gap_analysis = gap_analysis
@@ -64,6 +67,7 @@ class InteractiveReportGenerator:
         self.reference_analysis = reference_analysis
         self.output_dir = Path(output_dir)
         self.offline_plots = offline_plots
+        self.mapper = mapper
         
         # Report metadata
         self.report_title = "baitUtils Coverage Evaluation Report"
@@ -654,24 +658,45 @@ class InteractiveReportGenerator:
         self.html_components.append(exports_html)
     
     def _create_methodology(self) -> None:
-        """Create methodology section."""
-        method_html = """
+        """Create the methodology section from the analysis parameters and the scorer's constants."""
+        params = self.coverage_stats.get('parameters', {})
+        weights = QualityScorer.DEFAULT_WEIGHTS
+        targets = QualityScorer.DEFAULT_BENCHMARKS
+        thresholds = QualityScorer.DEFAULT_THRESHOLDS
+        weight_items = "".join(
+            f"<li><strong>{name.replace('_', ' ').title()}</strong>: {weight:.0%}</li>"
+            for name, weight in weights.items())
+        method_html = f"""
         <div class="section">
             <h2>Methodology</h2>
             <div class="collapsible">
                 <button class="collapsible-header">Analysis Methodology</button>
                 <div class="collapsible-content">
                     <h4>Mapping</h4>
-                    <p>Oligos were mapped to reference sequences using pblat with specified identity and length thresholds.</p>
+                    <p>Oligos were mapped to the reference with {_e(self.mapper)}. Hits count when their
+                    BLAT identity is at least {params.get('min_identity', 'N/A')}% and their aligned length
+                    at least {params.get('min_length', 'N/A')} bp.</p>
                     
                     <h4>Coverage Calculation</h4>
-                    <p>Coverage depth was calculated at each reference position. Coverage breadth represents the percentage of reference positions with coverage >= minimum threshold.</p>
+                    <p>Depth is the number of aligned blocks over each reference position. Coverage breadth
+                    is the percentage of positions with depth at least {params.get('min_coverage', 'N/A')};
+                    it is also reported over the bases that are not N.</p>
                     
                     <h4>Gap Analysis</h4>
-                    <p>Coverage gaps were identified as contiguous regions with coverage below the minimum threshold. Gap features were analyzed including GC content, sequence complexity, and repetitive elements.</p>
+                    <p>Gaps are runs of positions below the minimum depth, at or above the minimum gap size.
+                    Each gap is characterised by GC content, Shannon entropy, duplicated 6-mers, homopolymer
+                    runs and N content.</p>
                     
                     <h4>Quality Scoring</h4>
-                    <p>Overall quality score combines coverage breadth, depth uniformity, mapping efficiency, and gap characteristics using weighted averaging.</p>
+                    <p>The overall score is a weighted sum of five component scores in 0-1:</p>
+                    <ul>{weight_items}</ul>
+                    <p>Targets: breadth {targets['coverage_breadth']:.0f}%, mean depth {targets['mean_depth']:.0f}x,
+                    uniformity (1 - Gini) {targets['depth_uniformity']:.1f}, mapping efficiency
+                    {targets['mapping_efficiency']:.0f}%, gaps at most {targets['gap_percentage']:.0f}% of the
+                    reference and {targets['largest_gap']:,} bp for the largest gap. The reference difficulty
+                    component is breadth relative to the breadth expected for the reference's difficulty.
+                    Categories: Excellent &gt;= {thresholds['excellent']}, Good &gt;= {thresholds['good']},
+                    Fair &gt;= {thresholds['fair']}, otherwise Poor.</p>
                 </div>
             </div>
         </div>

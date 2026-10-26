@@ -1,9 +1,10 @@
+# Runtime dependencies (the same list as pyproject.toml). The check and fill
+# commands also need pybedtools and the bedtools binary: pip install .[bedtools]
 numpy>=1.21.0
 pandas>=1.3.0
-matplotlib>=3.4.0
-seaborn>=0.11.0
-scikit-learn>=0.24.0
+matplotlib>=3.6.0
+seaborn>=0.12.0
+scikit-learn>=1.0.0
 biopython>=1.80
 plotly>=5.0.0
 scipy>=1.7.0
-pybedtools>=0.9.0

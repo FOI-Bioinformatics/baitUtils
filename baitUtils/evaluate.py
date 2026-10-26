@@ -286,6 +286,7 @@ def main(args):
         
         # Optional outputs
         benchmark_results = None
+        benchmark_report = None
         # Step 7: Run benchmarking analysis
         if args.enable_benchmarking:
             logging.info("Step 7/9: Running benchmark analysis...")
@@ -296,6 +297,7 @@ def main(args):
                 quality_score=quality_score
             )
             benchmark_results = benchmark_analyzer.run_full_benchmark()
+            benchmark_report = benchmark_analyzer.generate_benchmark_report(benchmark_results)
         
         # Step 8: Generate interactive plots
         if args.enable_interactive_plots:
@@ -318,14 +320,16 @@ def main(args):
                 reference_analysis=reference_analysis,
                 quality_scores=quality_score.to_dict(),
                 output_dir=output_dir,
-                offline_plots=args.offline_plots
+                offline_plots=args.offline_plots,
+                mapper=args.mapper
             )
             report_generator.generate_report()
     
         # Final: text reports and evaluation.json
         logging.info("Final step: Generating standard reports...")
         generate_reports(coverage_stats, gap_analysis, output_dir, args, benchmark_results,
-                         quality_score=quality_score, reference_analysis=reference_analysis)
+                         quality_score=quality_score, reference_analysis=reference_analysis,
+                         benchmark_report=benchmark_report)
         
         # Copy intermediate files if requested
         if args.keep_intermediates:
@@ -401,7 +405,8 @@ def reference_analysis_record(reference_analysis) -> Optional[Dict]:
 
 
 def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path, args,
-                     benchmark_results=None, quality_score=None, reference_analysis=None) -> None:
+                     benchmark_results=None, quality_score=None, reference_analysis=None,
+                     benchmark_report: Optional[str] = None) -> None:
     """Generate text reports and the machine-readable evaluation.json."""
     
     write_json({
@@ -480,75 +485,40 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
     with open(rec_file, 'w') as f:
         f.write("=== COVERAGE IMPROVEMENT RECOMMENDATIONS ===\n\n")
         
-        # Generate recommendations based on analysis
-        recommendations = generate_recommendations(coverage_stats, gap_analysis)
+        # The same recommendations as the HTML report: gap suggestions and quality scorer
+        recommendations = generate_recommendations(coverage_stats, gap_analysis, quality_score)
         
         for i, rec in enumerate(recommendations, 1):
             f.write(f"{i}. {rec}\n\n")
     
-    # Benchmarking report
+    # Benchmarking report (text rendered by the analyzer that ran the benchmark)
     if benchmark_results is not None:
+        if benchmark_report is None:
+            benchmark_report = BenchmarkAnalyzer(coverage_stats, gap_analysis, reference_analysis,
+                                                 quality_score).generate_benchmark_report(benchmark_results)
         benchmark_file = output_dir / "benchmark_analysis.txt"
         with open(benchmark_file, 'w') as f:
-            # Import here to avoid circular imports
-            from baitUtils.benchmark import BenchmarkAnalyzer
-            dummy_analyzer = BenchmarkAnalyzer({}, {}, {}, None)
-            report_content = dummy_analyzer.generate_benchmark_report(benchmark_results)
-            f.write(report_content)
+            f.write(benchmark_report)
     
     logging.info("Reports generated successfully")
 
 
-def generate_recommendations(coverage_stats: Dict, gap_analysis: Dict) -> List[str]:
-    """Generate improvement recommendations based on analysis."""
-    recommendations = []
-    
-    # Coverage breadth recommendations
-    breadth = coverage_stats.get('coverage_breadth', 0)
-    if breadth < 80:
-        recommendations.append(
-            f"Coverage breadth is only {breadth:.1f}%. Consider adding more oligos "
-            "to target uncovered regions, particularly the largest gaps."
-        )
-    
-    # Coverage depth recommendations  
-    mean_depth = coverage_stats.get('mean_depth', 0)
-    depth_std = coverage_stats.get('depth_std', 0)
-    if depth_std / mean_depth > 1.0 if mean_depth > 0 else True:
-        recommendations.append(
-            "Coverage depth is highly variable (high coefficient of variation). "
-            "Consider redistributing oligos for more uniform coverage."
-        )
-    
-    # Gap-based recommendations
-    total_gaps = gap_analysis.get('total_gaps', 0)
-    if total_gaps > 100:
-        recommendations.append(
-            f"Found {total_gaps} coverage gaps. Use 'baitUtils fill' command "
-            "to iteratively select additional oligos for gap closure."
-        )
-    
-    # Large gap recommendations
-    max_gap = gap_analysis.get('max_gap_size', 0)
-    if max_gap > 10000:
-        recommendations.append(
-            f"Largest gap is {max_gap:,} bp. Very large gaps may indicate "
-            "problematic reference regions requiring specialized oligo design."
-        )
-    
-    # Mapping efficiency recommendations
-    mapping_eff = coverage_stats.get('mapping_efficiency', 0)
-    if mapping_eff < 80:
-        recommendations.append(
-            f"Only {mapping_eff:.1f}% of oligos mapped successfully. "
-            "Consider reviewing oligo design parameters or reference sequence quality."
-        )
-    
+def generate_recommendations(coverage_stats: Dict, gap_analysis: Dict,
+                             quality_score=None) -> List[str]:
+    """
+    Recommendations for recommendations.txt: the gap analysis suggestions
+    followed by the quality scorer's recommendations, the same lists the
+    HTML report shows. The quality score is computed here when the caller
+    has none.
+    """
+    if quality_score is None:
+        quality_score = QualityScorer(coverage_stats, gap_analysis).calculate_quality_score()
+    recommendations: List[str] = []
+    for text in list(gap_analysis.get('suggestions', [])) + list(quality_score.recommendations):
+        if text not in recommendations:
+            recommendations.append(text)
     if not recommendations:
-        recommendations.append(
-            "Coverage quality appears good! No major issues identified."
-        )
-    
+        recommendations.append("Coverage quality appears good. No major issues identified.")
     return recommendations
 
 

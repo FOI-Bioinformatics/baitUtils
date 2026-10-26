@@ -230,11 +230,16 @@ homopolymer content and repetitive content (fraction of duplicated
 12-mers). Each window also carries its observed breadth and mean depth, and
 the report gives Spearman correlations between features and coverage across
 windows with p-values, breadth by GC decile, and the windows with low
-breadth and an extreme feature. All of this is linear in reference length. The quality score is a weighted sum of five
-component scores in 0 to 1 (breadth, depth, mapping efficiency, gaps,
-reference difficulty) with categories Excellent (0.85 or more), Good (0.70),
-Fair (0.50) and Poor. Weights and targets are documented in
-`QualityScorer` and can be overridden in code.
+breadth and an extreme feature. All of this is linear in reference length.
+
+The quality score is a weighted sum of five component scores in 0 to 1:
+breadth (30 %), depth adequacy and uniformity (20 %, uniformity as 1 - Gini
+against a target of 0.8), gaps (20 %), mapping efficiency (15 %) and
+reference difficulty (15 %, the breadth relative to the breadth expected for
+the reference's difficulty, so a hard reference gets credit for the same
+breadth). Categories are Excellent (0.85 or more), Good (0.70), Fair (0.50)
+and Poor. Weights and targets are documented in `QualityScorer` and can be
+overridden in code; weight overrides are normalised to sum to 1.
 
 ### compare
 

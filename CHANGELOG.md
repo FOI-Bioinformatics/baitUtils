@@ -2,8 +2,38 @@
 
 ## Unreleased
 
-Phases 1 and 2 of the remediation plan in `docs/code_audit_2026-10.md`
+Phases 1 to 3 of the remediation plan in `docs/code_audit_2026-10.md`
 (finding numbers below refer to that report).
+
+### Changed (quality score and packaging)
+
+- The uniformity half of the depth component is `1 - Gini` relative to the
+  `depth_uniformity` target (0.8), as documented; the coefficient of
+  variation is used only when no Gini coefficient is available (F-19).
+- The reference difficulty component is the breadth relative to the breadth
+  expected for the reference's difficulty (the breadth target, reduced by up
+  to half for the hardest references), so the same breadth scores higher on
+  a harder reference, as the docstring always said; without a reference
+  analysis the reference counts as easy instead of scoring a fixed 0.7
+  (F-20, F-45).
+- Weight overrides are normalised to sum to 1, so the overall score stays
+  in 0-1 (F-21).
+- `recommendations.txt` lists the gap analysis suggestions and the quality
+  scorer's recommendations, the same lists as the HTML report, instead of a
+  third set of thresholds (F-43); `benchmark_analysis.txt` carries the
+  overall score header (F-44); the benchmark reports uniformity as not
+  applicable instead of a fabricated 0.5 when no Gini coefficient exists
+  (F-47).
+- The evaluate report's methodology section is generated from the analysis
+  parameters, the mapper used and the scorer's constants (F-40).
+- Packaging moved to `pyproject.toml` (`setup.py` is a shim); `tqdm` is no
+  longer a dependency; `requirements.txt` matches the project dependencies
+  and `pybedtools` is the `bedtools` extra; matplotlib >= 3.6 and
+  seaborn >= 0.12 are required, and the category plots pass `hue` so that
+  seaborn 0.14 keeps working; Python 3.13 is tested and declared (F-37,
+  F-38, F-69).
+- CI uses current action versions, tests Python 3.13 and installs bedtools
+  on Ubuntu so that the `check` and `fill` end-to-end tests run (F-70).
 
 ### Changed (command line)
 

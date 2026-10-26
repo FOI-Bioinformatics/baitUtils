@@ -11,7 +11,7 @@ import unittest
 import tempfile
 import shutil
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 import sys
 import os
 
@@ -217,9 +217,8 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         """Clean up test fixtures."""
         shutil.rmtree(self.test_dir)
     
-    @patch('builtins.open', new_callable=mock_open)
-    def test_report_generation(self, mock_file):
-        """Test HTML report generation."""
+    def test_report_generation(self):
+        """The report is written to the output directory with its main sections."""
         quality_scores = {
             'overall_score': self.quality_score.overall_score,
             'component_scores': self.quality_score.component_scores
@@ -229,14 +228,15 @@ class TestInteractiveReportGenerator(unittest.TestCase):
             self.gap_analysis,
             quality_scores,
             self.reference_analysis,
-            self.test_dir
+            self.test_dir,
+            mapper="minimap2"
         )
-        
-        # Test report generation doesn't crash
-        try:
-            generator.generate_report()
-        except Exception as e:
-            self.fail(f"Report generation failed: {e}")
+        report_file = generator.generate_report()
+        self.assertTrue(Path(report_file).exists())
+        html = Path(report_file).read_text()
+        for section in ("Executive Summary", "Gap Analysis", "Quality Assessment", "Methodology"):
+            self.assertIn(section, html)
+        self.assertIn("mapped to the reference with minimap2", html)
     
     def test_html_structure_validation(self):
         """Test HTML report structure."""

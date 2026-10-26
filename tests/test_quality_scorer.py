@@ -244,14 +244,13 @@ class TestQualityScorer(unittest.TestCase):
             self.assertIn(component, quality_score.component_scores)
             self.assertTrue(0 <= quality_score.component_scores[component] <= 1)
         
-        # Check grade assignment logic
-        if quality_score.overall_score >= 0.9:
+        # Check grade assignment logic against the scorer's own thresholds
+        thresholds = QualityScorer.DEFAULT_THRESHOLDS
+        if quality_score.overall_score >= thresholds['excellent']:
             self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
-        elif quality_score.overall_score >= 0.8:
-            self.assertEqual(quality_score.category, QualityCategory.EXCELLENT)
-        elif quality_score.overall_score >= 0.7:
+        elif quality_score.overall_score >= thresholds['good']:
             self.assertEqual(quality_score.category, QualityCategory.GOOD)
-        elif quality_score.overall_score >= 0.5:
+        elif quality_score.overall_score >= thresholds['fair']:
             self.assertEqual(quality_score.category, QualityCategory.FAIR)
         else:
             self.assertEqual(quality_score.category, QualityCategory.POOR)
