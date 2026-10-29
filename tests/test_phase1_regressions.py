@@ -248,7 +248,7 @@ class TestEvaluateJson:
         assert "gc_content" in ref["coverage_correlations"]["features"]
         assert ref["coverage_correlations"]["breadth_by_gc"]
         html = (out / "coverage_evaluation_report.html").read_text()
-        assert "Feature-Coverage Correlations" in html and "Breadth by GC decile" in html
+        assert "Spearman rank correlation" in html and "GC decile" in html
         assert "Quality Trends" not in (out / "interactive_plots" / "quality_assessment.html").read_text()
         # gap features are produced (used by the interactive gap panels) but kept out of the JSON
         assert "gap_features" not in data["gap_analysis"]
@@ -269,7 +269,7 @@ class TestComparePlotSettings:
         assert "data:image/svg+xml;base64" in html and "data:image/png" not in html
         assert 'href="interactive_comparative_plots/comparison_dashboard.html"' in html
         assert "/10" not in html
-        assert "Significance labels: *** p<=0.001, ** p<=0.01, * p<=0.05, ns p>0.05" in html
+        assert "Significance labels: *** p&lt;=0.001, ** p&lt;=0.01, * p&lt;=0.05, ns p&gt;0.05" in html
         data = json.loads((out / "comparison.json").read_text())
         assert data["reference_analysis"]["coverage_correlations"]["applicable"] is True
         assert all(0.0 <= score <= 1.0 for _, score in data["ranking"])

@@ -249,7 +249,22 @@ def main(args):
         output_dir=output_dir,
         differential_analyzer=differential_analyzer,
         visualizer=visualizer,
-        plots=plots
+        plots=plots,
+        metadata={
+            'reference': str(args.reference),
+            'mapper': args.mapper,
+            'command': ' '.join(sys.argv),
+            'versions': tool_versions(),
+            'parameters': {
+                'min_identity': args.min_identity, 'min_length': args.min_length,
+                'max_hits': args.max_hits,
+                'min_coverage': args.min_coverage, 'target_coverage': args.target_coverage,
+                'min_gap_size': args.min_gap_size, 'gap_extend': args.gap_extend,
+                'reference_analysis_window': args.reference_analysis_window,
+                'significance_level': args.significance_level,
+                'multiple_comparison_correction': args.multiple_comparison_correction,
+            },
+        },
     )
     
     report_file = report_generator.generate_report()

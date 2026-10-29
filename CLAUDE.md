@@ -40,6 +40,8 @@ The project follows a modular, well-factored architecture with clear separation 
 - **`quality_scorer.py`**: Quality score in 0-1 with documented weights, targets and thresholds
 - **`benchmark.py`**: Comparison of observed metrics with the design targets in `QualityScorer.DEFAULT_BENCHMARKS`
 - **`reference_analyzer.py`**: Per-reference and per-window features with Spearman correlations against observed coverage
+- **`design.py`**: the design system shared by every figure and both reports (palettes, chrome, number formats, matplotlib style, Plotly template, CSS variables, `plotly_layout`, `subplot_note`, `histogram_bins`)
+- **`coverage_viz.py`**: static evaluate figures (coverage profile, overview, depth, gaps, per-reference, coverage map, quality score)
 - **`interactive_plots.py`**: Interactive Plotly visualizations
 - **`report_generator.py`**: HTML report generation
 
