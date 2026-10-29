@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Changed (reports and figures)
+
+The report and figure redesign in `docs/report_design_audit_2026-10.md`
+(D-numbers refer to that report).
+
+- One design system (`baitUtils/design.py`) for every figure and both
+  reports: a fixed-order categorical palette that passes the colour-vision
+  checks, one sequential blue ramp for magnitudes, status colours reserved
+  for the quality category and shown with their label, one reserved red for
+  gaps, shared fonts, number formats, axis styling and a Plotly template
+  (D-10 to D-13).
+- Chart forms follow the data: the donut and the radar charts are gone
+  (D-1, D-2); the compare matrix shows raw values shaded within each column
+  (D-3); p-values are lollipops against alpha, effect sizes are signed bars,
+  and tests on fewer than five references carry a caveat (D-4); the depth
+  thresholds are the user's `--min-coverage` and `--target-coverage` (D-5);
+  count axes have integer ticks and histograms round bin widths (D-6);
+  empty panels say why they are empty (D-7); one colour scale per figure
+  (D-8).
+- New figures: `plots/coverage_profile` (depth along the references with
+  gaps shaded), `plots/quality_score`, and a coverage map in
+  `plots/coverage_heatmap`. `coverage_dashboard.html` and
+  `comparison_dashboard.html` are coverage profiles;
+  `metric_comparison.html` replaces `performance_radar.html` (D-9).
+- The evaluate report has a per-reference results table (length, GC, N,
+  breadth, breadth over non-N bases, depth, gaps, hits per strand,
+  difficulty) (D-9).
+- Both reports share one stylesheet and script, with a table of contents,
+  numbered sections, numbered figures and tables with captions, summary
+  tiles, a metadata line and a footer with tool versions and the command
+  line; `templates/comparative_report.css` and `.js` are removed (D-14 to
+  D-18).
+- Plot ids are prefixed `fig-` so that they cannot collide with section
+  ids, which displaced three figures above their headings (D-19); legends
+  sit above the subplot titles and are omitted for single series (D-20).
+- `CoverageVisualizer`, `InteractivePlotter` and `InteractiveReportGenerator`
+  take `coverage_arrays`; the visualizer takes `quality_scores`; both report
+  generators take `metadata` (inputs, command, versions).
+
+### Code audit remediation
+
 The remediation plan in `docs/code_audit_2026-10.md` (finding numbers below
 refer to that report).
 

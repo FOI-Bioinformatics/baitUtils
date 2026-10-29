@@ -147,7 +147,7 @@ class TestCompareTwoDifferentSets:
         assert per_ref["coverage_breadth"]["interpretation"].startswith(("Difference", "No difference"))
         html = (comparison / "comparative_analysis_report.html").read_text()
         assert "Friedman" in html
-        assert re.search(r"P-value:</strong> \d\.\d{4} \(adjusted \d\.\d{4}\)", html)
+        assert re.search(r"<td class=\"num\">\d\.\d{4}</td><td class=\"num\">\d\.\d{4}</td>", html)
         assert "Full" in html and "Subset" in html
 
     def test_ranking_prefers_the_full_set(self, comparison):

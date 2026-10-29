@@ -576,7 +576,7 @@ class TestComparativeReportGenerator(unittest.TestCase):
         summary = self.generator._generate_executive_summary()
         
         # Check content
-        self.assertIn('Executive Summary', summary)
+        self.assertIn('Summary', summary)
         self.assertIn('Set2', summary)  # Best performer
         self.assertIn('0.88', summary)  # Quality score on its 0-1 scale
         self.assertNotIn('/10', summary)
@@ -588,7 +588,7 @@ class TestComparativeReportGenerator(unittest.TestCase):
         overview = self.generator._generate_comparison_overview(comparison_matrix)
         
         # Check content
-        self.assertIn('Comparison Overview', overview)
+        self.assertIn('Comparison', overview)
         self.assertIn('<table', overview)
         self.assertIn('Set1', overview)
         self.assertIn('Set2', overview)
