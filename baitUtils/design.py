@@ -162,58 +162,84 @@ def select_references(per_reference: Dict[str, Dict], limit: int = 8) -> List[st
 
 # ------------------------------------------------------------- matplotlib
 
-def apply_matplotlib_style(dpi: int = 300) -> None:
-    """Set the matplotlib rcParams of the design system (idempotent)."""
-    import matplotlib as mpl
+def matplotlib_rc(dpi: int = 300) -> Dict[str, object]:
+    """The matplotlib rcParams of the design system."""
     from cycler import cycler
 
-    mpl.rcParams.update({
-        "figure.facecolor": CHROME["surface"],
-        "figure.dpi": 100,
-        "savefig.dpi": dpi,
-        "savefig.facecolor": CHROME["surface"],
-        "savefig.edgecolor": "none",
-        "savefig.bbox": "tight",
-        "savefig.pad_inches": 0.15,
-        "axes.facecolor": CHROME["surface"],
-        "axes.edgecolor": CHROME["axis"],
-        "axes.linewidth": 0.8,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.grid": True,
-        "axes.grid.axis": "y",
-        "axes.axisbelow": True,
-        "grid.color": CHROME["grid"],
-        "grid.linewidth": 0.8,
-        "grid.linestyle": "-",
-        "axes.titlesize": 11,
-        "axes.titleweight": "semibold",
-        "axes.titlelocation": "left",
-        "axes.titlepad": 10,
-        "axes.titlecolor": CHROME["ink"],
-        "axes.labelsize": 9.5,
-        "axes.labelcolor": CHROME["ink_secondary"],
-        "axes.prop_cycle": cycler(color=CATEGORICAL),
-        "xtick.labelsize": 8.5,
-        "ytick.labelsize": 8.5,
-        "xtick.color": CHROME["ink_muted"],
-        "ytick.color": CHROME["ink_muted"],
-        "xtick.major.size": 3,
-        "ytick.major.size": 0,
-        "xtick.major.width": 0.8,
-        "legend.fontsize": 8.5,
-        "legend.frameon": False,
-        "legend.labelcolor": CHROME["ink_secondary"],
-        "font.family": "sans-serif",
-        "font.sans-serif": MPL_FONTS,
-        "font.size": 9.5,
-        "text.color": CHROME["ink"],
-        "figure.titlesize": 12,
-        "figure.titleweight": "semibold",
-        "lines.linewidth": 2.0,
-        "lines.markersize": 5,
-        "patch.linewidth": 0,
-    })
+    return {
+    "figure.facecolor": CHROME["surface"],
+    "figure.dpi": 100,
+    "savefig.dpi": dpi,
+    "savefig.facecolor": CHROME["surface"],
+    "savefig.edgecolor": "none",
+    "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.15,
+    "axes.facecolor": CHROME["surface"],
+    "axes.edgecolor": CHROME["axis"],
+    "axes.linewidth": 0.8,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.grid": True,
+    "axes.grid.axis": "y",
+    "axes.axisbelow": True,
+    "grid.color": CHROME["grid"],
+    "grid.linewidth": 0.8,
+    "grid.linestyle": "-",
+    "axes.titlesize": 11,
+    "axes.titleweight": "semibold",
+    "axes.titlelocation": "left",
+    "axes.titlepad": 10,
+    "axes.titlecolor": CHROME["ink"],
+    "axes.labelsize": 9.5,
+    "axes.labelcolor": CHROME["ink_secondary"],
+    "axes.prop_cycle": cycler(color=CATEGORICAL),
+    "xtick.labelsize": 8.5,
+    "ytick.labelsize": 8.5,
+    "xtick.color": CHROME["ink_muted"],
+    "ytick.color": CHROME["ink_muted"],
+    "xtick.major.size": 3,
+    "ytick.major.size": 0,
+    "xtick.major.width": 0.8,
+    "legend.fontsize": 8.5,
+    "legend.frameon": False,
+    "legend.labelcolor": CHROME["ink_secondary"],
+    "font.family": "sans-serif",
+    "font.sans-serif": MPL_FONTS,
+    "font.size": 9.5,
+    "text.color": CHROME["ink"],
+    "figure.titlesize": 12,
+    "figure.titleweight": "semibold",
+    "lines.linewidth": 2.0,
+    "lines.markersize": 5,
+    "patch.linewidth": 0,
+    }
+
+
+def apply_matplotlib_style(dpi: int = 300) -> None:
+    """Set the design system's rcParams globally. Figures made by the visualizers use
+    `styled` instead, which keeps the style local to each figure."""
+    import matplotlib as mpl
+
+    mpl.rcParams.update(matplotlib_rc(dpi))
+
+
+def styled(method):
+    """Run a plotting method inside an rc_context of the design system.
+
+    The style must not leak into the global rcParams: it sets `patch.linewidth` to 0,
+    and under matplotlib 3.10 a dashed line of width 0 (seaborn's violin quartiles in
+    the `plot` command) raises "At least one value in the dash list must be positive".
+    The receiver's `dpi` attribute sets the save resolution.
+    """
+    import functools
+    import matplotlib as mpl
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with mpl.rc_context(matplotlib_rc(getattr(self, "dpi", 300))):
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def style_axes(ax, grid: str = "y", baseline: bool = True) -> None:

@@ -76,7 +76,6 @@ class ComparativeVisualizer:
         self.plots_dir.mkdir(parents=True, exist_ok=True)
         self.interactive_dir = self.output_dir / "interactive_comparative_plots"
         self.interactive_dir.mkdir(parents=True, exist_ok=True)
-        design.apply_matplotlib_style(dpi=dpi)
 
     # ----------------------------------------------------------- helpers
     def _save(self, fig, name: str) -> str:
@@ -105,6 +104,7 @@ class ComparativeVisualizer:
         ax.spines["left"].set_visible(False)
 
     # ------------------------------------------------------------ static
+    @design.styled
     def create_coverage_distribution_plots(self, oligo_sets: List[OligoSetResult]) -> str:
         """Breadth, mean depth, uniformity and mapping efficiency per set."""
         names = [s.name for s in oligo_sets]
@@ -123,6 +123,7 @@ class ComparativeVisualizer:
         fig.tight_layout(rect=(0, 0, 1, 0.97))
         return self._save(fig, "coverage_distributions")
 
+    @design.styled
     def create_gap_analysis_comparison(self, oligo_sets: List[OligoSetResult]) -> str:
         """Gap count, share of the reference in gaps, mean and largest gap per set."""
         names = [s.name for s in oligo_sets]
@@ -141,6 +142,7 @@ class ComparativeVisualizer:
         fig.tight_layout(rect=(0, 0, 1, 0.97))
         return self._save(fig, "gap_analysis_comparison")
 
+    @design.styled
     def create_performance_heatmap(self, analyzer: ComparativeAnalyzer) -> str:
         """The comparison matrix as a table: raw values, shaded per metric from worst to best."""
         matrix = analyzer.generate_comparison_matrix()
@@ -171,6 +173,7 @@ class ComparativeVisualizer:
         fig.tight_layout()
         return self._save(fig, "performance_heatmap")
 
+    @design.styled
     def create_statistical_comparison_plot(self, differential_analyzer: DifferentialAnalyzer,
                                            oligo_sets: List[OligoSetResult]) -> str:
         """Adjusted p-values, effect sizes, window depth distributions and paired per-reference breadth."""

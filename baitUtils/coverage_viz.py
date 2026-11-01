@@ -79,7 +79,6 @@ class CoverageVisualizer:
 
         self.plots_dir = self.output_dir / "plots"
         self.plots_dir.mkdir(parents=True, exist_ok=True)
-        design.apply_matplotlib_style(dpi=dpi)
 
     # ------------------------------------------------------------- driver
     def generate_all_plots(self) -> Dict[str, str]:
@@ -133,6 +132,7 @@ class CoverageVisualizer:
             plt.close(fig)
 
     # ----------------------------------------------------------- figures
+    @design.styled
     def plot_coverage_profile(self) -> Optional[Path]:
         """Depth along each of the longest references, gaps shaded."""
         if not self.coverage_arrays:
@@ -177,6 +177,7 @@ class CoverageVisualizer:
         fig.tight_layout(rect=(0.02, 0.02, 1, 0.97))
         return self._save(fig, "coverage_profile")
 
+    @design.styled
     def plot_coverage_overview(self) -> Optional[Path]:
         """Base composition (covered, uncovered, N) per reference and the cumulative depth curve."""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [1.2, 1]})
@@ -252,6 +253,7 @@ class CoverageVisualizer:
         ax.set_title("Cumulative depth")
         style_axes(ax, grid="y")
 
+    @design.styled
     def plot_depth_distribution(self) -> Optional[Path]:
         """Depth histogram and the depth spread per reference."""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [1, 1.1]})
@@ -313,6 +315,7 @@ class CoverageVisualizer:
         fig.tight_layout()
         return self._save(fig, "depth_distribution")
 
+    @design.styled
     def plot_gap_analysis(self) -> Optional[Path]:
         """Gap length distribution and the largest gaps."""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), gridspec_kw={'width_ratios': [1, 1.2]})
@@ -361,6 +364,7 @@ class CoverageVisualizer:
         fig.tight_layout()
         return self._save(fig, "gap_analysis")
 
+    @design.styled
     def plot_per_reference_coverage(self) -> Optional[Path]:
         """Breadth per reference and breadth against reference length."""
         per_ref = self._per_reference
@@ -410,6 +414,7 @@ class CoverageVisualizer:
         fig.tight_layout()
         return self._save(fig, "per_reference_coverage")
 
+    @design.styled
     def plot_coverage_heatmap(self) -> Optional[Path]:
         """Coverage map: mean depth in 100 relative-position bins for each reference."""
         if not self.coverage_arrays:
@@ -452,6 +457,7 @@ class CoverageVisualizer:
         fig.tight_layout()
         return self._save(fig, "coverage_heatmap")
 
+    @design.styled
     def plot_quality_score(self) -> Optional[Path]:
         """Component scores with their weights, and the overall score against the category thresholds."""
         scores = self.quality_scores.get('component_scores', {}) or {}
