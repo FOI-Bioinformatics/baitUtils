@@ -216,11 +216,11 @@ def main(args):
         logging.info("Starting comprehensive oligo set evaluation...")
         
         # Step 1: Perform mapping
-        logging.info("Step 1/5: Mapping oligos to reference sequences...")
+        logging.info("Step 1/9: Mapping oligos to reference sequences...")
         psl_file = perform_mapping(args, temp_path)
         
         # Step 2: Analyze coverage statistics
-        logging.info("Step 2/5: Analyzing coverage statistics...")
+        logging.info("Step 2/9: Analyzing coverage statistics...")
         analyzer = CoverageAnalyzer(
             psl_file=psl_file,
             reference_file=args.reference,
@@ -240,7 +240,7 @@ def main(args):
         analyzer.export_coverage_data(output_dir, per_position=args.per_position_coverage)
         
         # Step 3: Perform gap analysis
-        logging.info("Step 3/5: Performing gap analysis...")
+        logging.info("Step 3/9: Performing gap analysis...")
         gap_analyzer = GapAnalyzer(
             coverage_data=coverage_stats,
             reference_file=args.reference,
@@ -253,20 +253,8 @@ def main(args):
         
         gap_analysis = gap_analyzer.analyze()
         
-        # Step 4: Generate visualizations
-        logging.info("Step 4/5: Generating visualizations...")
-        visualizer = CoverageVisualizer(
-            coverage_stats=coverage_stats,
-            gap_analysis=gap_analysis,
-            output_dir=output_dir,
-            plot_format=args.plot_format,
-            dpi=args.plot_dpi
-        )
-        
-        visualizer.generate_all_plots()
-        
-        # Step 5: Analyze reference sequences
-        logging.info("Step 5/9: Analyzing reference sequences...")
+        # Step 4: Analyze reference sequences
+        logging.info("Step 4/9: Analyzing reference sequences...")
         ref_analyzer = ReferenceAnalyzer(
             reference_file=args.reference,
             coverage_data=coverage_stats,
@@ -277,15 +265,28 @@ def main(args):
         )
         reference_analysis = ref_analyzer.analyze()
 
-        # Step 6: Calculate quality scores
-        logging.info("Step 6/9: Calculating quality scores...")
+        # Step 5: Calculate quality scores
+        logging.info("Step 5/9: Calculating quality scores...")
         quality_scorer = QualityScorer(
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
             reference_analysis=reference_analysis
         )
         quality_score = quality_scorer.calculate_quality_score()
-        
+
+        # Step 6: Generate static figures
+        logging.info("Step 6/9: Generating figures...")
+        visualizer = CoverageVisualizer(
+            coverage_stats=coverage_stats,
+            gap_analysis=gap_analysis,
+            output_dir=output_dir,
+            plot_format=args.plot_format,
+            dpi=args.plot_dpi,
+            coverage_arrays=analyzer.coverage_arrays,
+            quality_scores=quality_score.to_dict(),
+        )
+        visualizer.generate_all_plots()
+
         # Optional outputs
         benchmark_results = None
         benchmark_report = None
@@ -309,7 +310,8 @@ def main(args):
                 gap_analysis=gap_analysis,
                 reference_analysis=reference_analysis,
                 quality_scores=quality_score.to_dict(),
-                output_dir=output_dir
+                output_dir=output_dir,
+                coverage_arrays=analyzer.coverage_arrays,
             )
             interactive_plotter.create_all_interactive_plots()
         
@@ -323,7 +325,14 @@ def main(args):
                 quality_scores=quality_score.to_dict(),
                 output_dir=output_dir,
                 offline_plots=args.offline_plots,
-                mapper=args.mapper
+                mapper=args.mapper,
+                coverage_arrays=analyzer.coverage_arrays,
+                metadata={
+                    'oligos': str(args.input),
+                    'reference': str(args.reference),
+                    'command': ' '.join(sys.argv),
+                    'versions': tool_versions(),
+                },
             )
             report_generator.generate_report()
     

@@ -234,7 +234,7 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         report_file = generator.generate_report()
         self.assertTrue(Path(report_file).exists())
         html = Path(report_file).read_text()
-        for section in ("Executive Summary", "Gap Analysis", "Quality Assessment", "Methodology"):
+        for section in ("Summary", "Gaps", "Quality score", "Methods", "Per-reference results"):
             self.assertIn(section, html)
         self.assertIn("mapped to the reference with minimap2", html)
     
@@ -263,8 +263,8 @@ class TestInteractiveReportGenerator(unittest.TestCase):
         # The _assemble_html method only returns the template structure
         # Content is populated by the generate_report method
         # Just check that we have a valid HTML structure
-        self.assertIn('container', html_content)
-        self.assertIn('baitUtils Coverage Evaluation Report', html_content)
+        self.assertIn('class="layout"', html_content)
+        self.assertIn('Coverage evaluation', html_content)
 
 
 class TestInteractivePlotter(unittest.TestCase):

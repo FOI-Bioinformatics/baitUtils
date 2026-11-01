@@ -209,6 +209,21 @@ evaluation/
   interactive_plots/               plotly figures
 ```
 
+The report has a table of contents, numbered figures and tables, summary
+tiles, a per-reference table (length, GC, N, breadth over all bases and
+over non-N bases, depth, gaps, hits per strand, difficulty), the coverage
+profile and the cumulative depth curve embedded, and a footer with the tool
+versions and the command line. Static figures (`--plot-format png|pdf|svg`):
+`coverage_profile` (depth along each reference with gaps shaded),
+`coverage_overview` (covered, uncovered and N bases per reference, and the
+cumulative depth curve against `--min-coverage` and `--target-coverage`),
+`depth_distribution`, `gap_analysis`, `per_reference_coverage`,
+`coverage_heatmap` (a coverage map by relative position) and
+`quality_score`. Interactive figures: `coverage_dashboard.html` (coverage
+profile), `detailed_gap_analysis.html`, `quality_assessment.html` and
+`reference_analysis.html`. All figures share one colour system
+(`baitUtils/design.py`); see `docs/report_design_audit_2026-10.md`.
+
 `evaluation.json` also holds a `reference_analysis` block with the
 per-reference features, the challenging regions and windows, and the
 feature-coverage correlations described below.
@@ -253,7 +268,14 @@ Evaluates each set as `evaluate` does (with the same `--min-gap-size`,
 `--gap-extend`, `--reference-analysis-window`, `--max-hits` and `--temp-dir`
 options) and writes `comparison.json`,
 `comparison_matrix.csv`, `pairwise_comparisons.csv`,
-`gap_overlap_analysis.txt`, `comparative_analysis_report.html` and plots.
+`gap_overlap_analysis.txt`, `comparative_analysis_report.html` and plots:
+`comparative_plots/` holds `coverage_distributions`,
+`gap_analysis_comparison`, `performance_heatmap` (raw values shaded within
+each column) and `statistical_comparison`;
+`interactive_comparative_plots/` holds `comparison_dashboard.html` (coverage
+profiles with one line per set) and `metric_comparison.html` (every metric as
+a fraction of the best set). Each set keeps one colour in every figure and
+table.
 Sets are ranked by a composite score in 0 to 1: quality score (40 %),
 coverage breadth (25 %), mapping efficiency (20 %) and a gap term that falls
 from 1 at no gaps to 0 at 100 gaps (15 %).

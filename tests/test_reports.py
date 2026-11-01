@@ -66,7 +66,7 @@ class TestEvaluateReport:
 
     def test_report_sections_and_plots(self, evaluate_output):
         html = (evaluate_output["eval"] / "coverage_evaluation_report.html").read_text()
-        for div_id in ("coverage-pie", "depth-dist", "gap-dist", "quality-radar"):
+        for div_id in ("fig-coverage-profile", "fig-cumulative-depth", "fig-gaps", "fig-quality", "fig-reference"):
             assert f'id="{div_id}"' in html or f"'{div_id}'" in html or div_id in html
         text = _text(html)
         assert "Reference" in text
@@ -83,8 +83,8 @@ class TestEvaluateReport:
 
     def test_static_plots_exist(self, evaluate_output):
         names = {p.name for p in (evaluate_output["eval"] / "plots").glob("*.png")}
-        assert {"coverage_overview.png", "depth_distribution.png", "gap_analysis.png",
-                "per_reference_coverage.png", "coverage_heatmap.png"} <= names
+        assert {"coverage_profile.png", "coverage_overview.png", "depth_distribution.png", "gap_analysis.png",
+                "per_reference_coverage.png", "coverage_heatmap.png", "quality_score.png"} <= names
 
 
 class TestCompareReport:
@@ -92,7 +92,7 @@ class TestCompareReport:
         html = (evaluate_output["cmp"] / "comparative_analysis_report.html").read_text()
         text = _text(html)
         assert " A " in text and " B " in text
-        assert "Statistical Analysis" in text
+        assert "Statistical tests" in text
         assert "adjusted for multiple comparisons (fdr)" in text
         assert "Not applicable" in text       # identical sets, paired tests cannot run
         assert "P-value: nan" not in text
@@ -106,4 +106,4 @@ class TestCompareReport:
         assert {"coverage_distributions.png", "gap_analysis_comparison.png",
                 "performance_heatmap.png", "statistical_comparison.png"} <= plots
         interactive = {p.name for p in (cmp_out / "interactive_comparative_plots").glob("*.html")}
-        assert {"comparison_dashboard.html", "performance_radar.html"} <= interactive
+        assert {"comparison_dashboard.html", "metric_comparison.html"} <= interactive
