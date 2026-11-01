@@ -1,13 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-11-01)
 
 ### Changed (requirements)
 
 - Python 3.12 or later is required; 3.10 and 3.11 are no longer tested or
   supported (`requires-python`, classifiers and the CI matrix).
-
-## 0.6.0 (2026-10-29)
 
 ### Changed (reports and figures)
 
