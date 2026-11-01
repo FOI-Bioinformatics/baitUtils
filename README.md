@@ -1,7 +1,7 @@
 # baitUtils
 
 [![CI](https://github.com/FOI-Bioinformatics/baitUtils/workflows/CI/badge.svg)](https://github.com/FOI-Bioinformatics/baitUtils/actions)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/FOI-Bioinformatics/baitUtils/branch/main/graph/badge.svg)](https://codecov.io/gh/FOI-Bioinformatics/baitUtils)
 
@@ -15,7 +15,7 @@ change output file names and options.
 
 ## Installation
 
-Requirements: Python 3.10 or later. Two external tools are needed for parts
+Requirements: Python 3.12 or later. Two external tools are needed for parts
 of the workflow:
 
 - pblat or minimap2 for `map`, `evaluate` and `compare` (`--mapper`)
