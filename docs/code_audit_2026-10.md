@@ -2,6 +2,11 @@
 
 Date: 2026-10-26. Audited revision: `22ab15a` (main, after PR #15).
 
+**Status:** all four remediation phases were implemented (PR #16) and
+released in 0.6.0. This document records the state of 0.5.1; line numbers
+and file names below refer to that revision, and the CHANGELOG lists what
+changed for each finding.
+
 ## 1. Scope and method
 
 - Every module under `baitUtils/` (31 files, 10 623 lines) was read in full,
