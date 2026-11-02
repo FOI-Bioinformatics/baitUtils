@@ -10,13 +10,15 @@ in-solution hybridization capture. baitUtils computes sequence properties of
 bait sets, maps baits to a reference, quantifies coverage and gaps, selects
 additional baits to close gaps, and compares alternative designs.
 
-See [CHANGELOG.md](CHANGELOG.md) for the changes in 0.3.0, several of which
-change output file names and options.
+See [CHANGELOG.md](CHANGELOG.md) for the changes in each release. 0.6.0
+renamed the options to kebab-case (the old spellings still work), moved the
+quality score to a 0-1 scale, redesigned the HTML reports and requires
+Python 3.12.
 
 ## Installation
 
-Requirements: Python 3.12 or later. Two external tools are needed for parts
-of the workflow:
+Requirements: Python 3.12 or later. External tools are needed for parts of
+the workflow:
 
 - pblat or minimap2 for `map`, `evaluate` and `compare` (`--mapper`)
 - bedtools (with the pybedtools package) for `check` and `fill`
@@ -25,11 +27,18 @@ of the workflow:
 ```bash
 conda create -n baitutils -c conda-forge -c bioconda python=3.12 pblat minimap2 bedtools pybedtools viennarna
 conda activate baitutils
-pip install baitutils          # or: pip install -e .  from a clone
+
+# from a release: the wheel is attached to each GitHub release
+pip install https://github.com/FOI-Bioinformatics/baitUtils/releases/download/v0.6.0/baitutils-0.6.0-py3-none-any.whl
+
+# or from a clone
+git clone https://github.com/FOI-Bioinformatics/baitUtils.git
+pip install -e ./baitUtils
 ```
 
-Python dependencies (installed by pip): numpy, pandas, matplotlib, seaborn,
-scikit-learn, biopython (1.80 or later), plotly, scipy, tqdm.
+baitUtils is not on PyPI yet. Python dependencies (installed by pip): numpy,
+pandas, matplotlib, seaborn, scikit-learn, biopython (1.80 or later), plotly
+and scipy. `pip install ".[bedtools]"` adds pybedtools.
 
 ## Commands
 
@@ -120,6 +129,8 @@ Runs the mapper (`-i` baits, `-r` reference) and writes, under `-o` with the
 Identity follows BLAT's calculation, so `--filter-identity` is on the same
 scale as pblat's `-minIdentity` (`--min-identity`, `--min-score` and
 `--min-match` are passed to pblat and warned about under minimap2).
+`--min-match-count` additionally requires a number of matching bases per hit
+(default 0, no limit).
 `--max-hits` treats baits with more passing hits as unmapped, which removes
 multi-mapping baits.
 
@@ -151,7 +162,9 @@ at least `--min-length` (default 100), the same defaults as `evaluate`. `--stran
 restricts the hits to one target strand (also in `fill`, `evaluate` and
 `compare`; the default counts both). Reference sizes come from the FASTA, so
 regions after the last mapped bait are included. `--forced-oligos` restricts
-the check to a list of bait IDs. `--uncovered-fasta` exports the uncovered
+the check to a list of bait IDs. `--longest-uncovered-out` lists the uncovered
+stretches, limited to those of at least `--uncovered-length-cutoff` bases
+(default 0, all). `--uncovered-fasta` exports the uncovered
 sequence, optionally extended by `--extend-region`; with `--n-split-fasta`
 the regions are also written split at N runs into pieces of at least
 `--min-oligo-length`. `--temp-dir` chooses where the run's temporary
@@ -168,7 +181,8 @@ baitUtils fill --alignments mapping/run-mapping.psl --reference reference.fasta 
 Greedy multi-pass selection: each pass scores every unselected mapping by
 its overlap with uncovered regions (weighted by region length, local
 difficulty and reference GC), and accepts candidates subject to
-`--spacing-distance` between start positions. Selection is per mapping, so a
+`--spacing-distance` between start positions, at most `--max-oligos-per-pass`
+per pass when given. Selection is per mapping, so a
 bait with several loci contributes only the locus that was chosen. Stops at
 `--max-passes`, after `--stall-rounds` passes without improvement, or when the
 uncovered base count stops decreasing. Baits in `--forced-oligos` are always
@@ -205,8 +219,10 @@ evaluation/
   recommendations.txt
   benchmark_analysis.txt           observed metrics against design targets
   coverage_evaluation_report.html  report (plotly.js from CDN unless --offline-plots)
-  plots/                           static figures
+  plots/                           static figures (--plot-format, --plot-dpi)
   interactive_plots/               plotly figures
+  intermediates/mapping.psl        mapper output, with --keep-intermediates
+                                   (mapping.paf under minimap2)
 ```
 
 The report has a table of contents, numbered figures and tables, summary
@@ -275,7 +291,8 @@ each column) and `statistical_comparison`;
 `interactive_comparative_plots/` holds `comparison_dashboard.html` (coverage
 profiles with one line per set) and `metric_comparison.html` (every metric as
 a fraction of the best set). Each set keeps one colour in every figure and
-table.
+table. `--plot-format` and `--plot-dpi` work as in `evaluate`. The compare
+report always loads plotly.js from a CDN; it has no `--offline-plots`.
 Sets are ranked by a composite score in 0 to 1: quality score (40 %),
 coverage breadth (25 %), mapping efficiency (20 %) and a gap term that falls
 from 1 at no gaps to 0 at 100 gaps (15 %).
@@ -299,9 +316,9 @@ this section.
 ## Workflow
 
 ```bash
-baitUtils stats    -i baits.fasta -o stats/ --filter --mingc 35 --maxgc 65
+baitUtils stats    -i baits.fasta -o stats/ --filter --min-gc 35 --max-gc 65
 baitUtils evaluate -i stats/filtered_sequences.fasta -r target.fasta -o eval/
-baitUtils map      -i candidates.fasta -q target.fasta -o map/ --prefix cand
+baitUtils map      -i candidates.fasta -r target.fasta -o map/ --prefix cand
 baitUtils fill     --alignments map/cand-mapping.psl --reference target.fasta --output add.txt
 baitUtils compare  -r target.fasta -o cmp/ --sets "v1:baits.fasta" "v2:baits_v2.fasta"
 ```
@@ -313,9 +330,10 @@ python -m pytest tests/
 ```
 
 The suite includes end-to-end runs of every command on a small dataset with
-hand-derived expected values; pblat is replaced by a script on PATH. Tests
-that need bedtools, pblat or ViennaRNA are skipped when the tools are absent
-and run in CI in a conda job.
+hand-derived expected values; pblat and minimap2 are replaced by scripts on
+PATH. Tests that need bedtools, pblat or ViennaRNA are skipped when the tools
+are absent and run in CI in a conda job. CI runs Python 3.12 and 3.13 on
+Ubuntu and macOS.
 
 ## Citation
 

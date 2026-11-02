@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- README: installation from the release wheel or a clone (baitUtils is not
+  on PyPI), the dependency list without `tqdm`, the current option spellings
+  in the workflow example, and the options that were missing
+  (`map --min-match-count`, `check`/`fill --uncovered-length-cutoff`,
+  `fill --max-oligos-per-pass`, `evaluate --keep-intermediates`,
+  `--plot-dpi`, `compare --plot-format`).
+- CLAUDE.md: setup with `pip install -e ".[dev]"`, the lint checks CI
+  enforces, the release process, the test fixtures, and the rules for
+  figures and reports; the class names and module descriptions match the
+  code.
+- CONTRIBUTING.md: setup, linting, architecture and test structure match
+  the repository; references to an issue template, GitHub Discussions and a
+  coverage threshold that do not exist are removed.
+- The two audit reports in `docs/` state that their findings were released
+  in 0.6.0.
+
 ## 0.6.0 (2026-11-01)
 
 ### Changed (requirements)

@@ -1,5 +1,8 @@
 # Report and figure design audit (October 2026)
 
+**Status:** the redesign described here was merged in PR #17 and released
+in 0.6.0.
+
 Scope: the HTML reports written by `evaluate` and `compare`, the static
 figures in `plots/` and `comparative_plots/`, and the interactive figures in
 `interactive_plots/` and `interactive_comparative_plots/`. The audit was done

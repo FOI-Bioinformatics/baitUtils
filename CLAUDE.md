@@ -24,7 +24,7 @@ The project follows a modular, well-factored architecture with clear separation 
 
 ### Core Utilities
 - **`sequence_analysis.py`**: Core sequence analysis functions (GC content, Tm, MFE, entropy, complexity)
-- **`coverage_analysis.py`**: Coverage calculation utilities, PSL parsing, BED operations
+- **`coverage_analysis.py`**: hits to BED blocks (via the parser in `mapping_utils.py`), bedtools coverage, uncovered regions, N-split FASTA export for `check` and `fill`
 - **`plotting_utils.py`**: Comprehensive plotting utilities with multiple chart types
 - **`mapping_utils.py`**: pblat and minimap2 runners, the single alignment parser (`PSLHit`, `parse_psl`, `parse_paf`, `parse_alignments`, BLAT identity) and the per-bait hit table
 - **`sequence_features.py`**: vectorized sequence features (GC, entropy, homopolymers, duplicated k-mers, window features and window coverage)
@@ -54,19 +54,18 @@ The project follows a modular, well-factored architecture with clear separation 
 ## Development Commands
 
 ### Installation and Setup
+Python 3.12 or later (`requires-python = ">=3.12"`; CI runs 3.12 and 3.13).
 ```bash
-# Create conda environment with dependencies
-conda create -n baitutils_env python=3.12 numpy pandas matplotlib-base seaborn scikit-learn biopython
-conda activate baitutils_env
+# External tools: pblat or minimap2 (map, evaluate, compare), bedtools +
+# pybedtools (check, fill), ViennaRNA (optional, hairpin/dimer energies in stats)
+conda create -n baitutils -c conda-forge -c bioconda python=3.12 pblat minimap2 bedtools pybedtools viennarna
+conda activate baitutils
 
-# Install optional external tools
-conda install -c bioconda pblat bedtools
-# Note: ViennaRNA installation is optional for MFE calculations
-conda install -c bioconda viennarna
-
-# Install package in development mode
-pip install -e .
+# Package in development mode with test and lint tools
+pip install -e ".[dev]"
 ```
+Packaging lives in `pyproject.toml` (`setup.py` is a shim); the version is
+`baitUtils/_version.py`.
 
 ### Testing
 ```bash
@@ -100,14 +99,20 @@ python -m baitUtils stats -i sequences.fasta -o results/
 ```
 
 ### Code Quality
+The checks CI enforces (the rest of ruff and flake8 runs with `--exit-zero`):
 ```bash
-# Run linting (if installed)
-ruff check baitUtils/
-flake8 baitUtils/
-
-# Format code (if installed)  
-black baitUtils/
+ruff check baitUtils/ --select=E9,F63,F7,F82,F401,F811,F841
+flake8 baitUtils/ --select=E9,F63,F7,F82
 ```
+
+### Releasing
+1. Set `__version__` in `baitUtils/_version.py` and date the CHANGELOG section.
+2. Merge to `main`, then either push a `v<version>` tag or run the Release
+   workflow manually on `main` with `version: v<version>`.
+3. The workflow checks that the tag matches `_version.py`, runs CI, builds
+   the sdist and wheel and creates a **draft** GitHub release with them; a
+   maintainer publishes it (publishing creates the tag for a manual run).
+   The package is not on PyPI.
 
 ## Key Components
 
@@ -115,7 +120,7 @@ black baitUtils/
 Each command follows a consistent pattern:
 - `add_arguments(parser)` - defines CLI arguments for the subcommand
 - `main(args)` - entry point that receives parsed arguments
-- Processor classes handle the main logic (e.g., `SequenceStatsProcessor`)
+- Processor classes handle the main logic (e.g., `CoverageEvaluationProcessor`, `GapFillingProcessor`, `SequenceMappingProcessor`)
 - Utility classes handle specific functionality
 
 ### Dependencies
@@ -124,8 +129,8 @@ Each command follows a consistent pattern:
 - **Interactive plotting**: plotly for enhanced visualizations
 - **Optional external tools**: 
   - ViennaRNA (for hairpin and self-dimer free energies)
-  - pblat (for sequence mapping)
-  - bedtools (for genomic interval operations)
+  - pblat or minimap2 (for sequence mapping, `--mapper`)
+  - bedtools with pybedtools (for `check` and `fill`)
 
 ### Input/Output Patterns
 - **Primary input**: FASTA/FASTA.GZ files containing sequences
@@ -159,8 +164,8 @@ Comprehensive visualization system:
 
 ### Mapping System (`mapping_utils.py`, `sequence_mapping.py`) 
 Sequence mapping workflow:
-- pblat integration with configurable parameters
-- PSL file parsing with filtering capabilities
+- pblat or minimap2 (`--mapper`), with BLAT identity on both so filters are comparable
+- One parser for PSL and PAF (`parse_alignments`) used by every command
 - Results categorization into mapped/unmapped sequences
 - FASTA output generation for different categories
 
@@ -189,10 +194,14 @@ The suite runs under pytest (tests/conftest.py provides a small dataset with han
 - **Edge cases**: Error handling, malformed inputs, empty datasets
 - **Integration tests**: Multi-module workflows
 
-### Mock Strategy
-- File operations mocked to avoid filesystem dependencies
-- External tool calls (pblat, bedtools) mocked in tests
-- Optional dependencies handled gracefully with availability checks
+### Fixtures and external tools
+- `tests/conftest.py` builds the dataset and puts fake `pblat` and `minimap2`
+  scripts on PATH that return precomputed hits for the baits in the query FASTA
+- The `run_cli` fixture runs commands end to end through the dispatcher
+- Tests that need bedtools, pblat or ViennaRNA skip when the tool is absent;
+  CI's `external-tools` job runs them in a conda environment
+- Some older unit tests mock matplotlib's `savefig`; keep `plt.savefig` or
+  `Figure.savefig` calls where those tests expect them
 
 ## Enhanced Coverage Evaluation (evaluate command)
 
@@ -216,7 +225,7 @@ baitUtils evaluate -i oligos.fasta -r reference.fasta -o results/ \
 - **`reference_analyzer.py`**: Per-reference and per-window features with Spearman correlations against observed coverage
 - **`gap_analysis.py`**: Gap characterization with sequence correlation
 
-## Phase 3: Comparative Analysis (compare command)
+## Comparative Analysis (compare command)
 
 ### Multi-Set Comparison
 ```bash
@@ -231,10 +240,30 @@ baitUtils compare -r reference.fasta -o results/ \
 ```
 
 ### Comparative Framework
-- **Multi-set analysis**: Simultaneous evaluation of multiple designs
-- **Statistical testing**: Rigorous comparison with significance testing
-- **Performance ranking**: Composite scoring and recommendation system
-- **Interactive reporting**: Comprehensive HTML reports with embedded analysis
+- Each set is evaluated as in `evaluate` (same options)
+- Statistical tests on observed data: window depths (KS, Mann-Whitney, Levene),
+  per-reference metrics (Wilcoxon or Friedman), bait identity and gap sizes,
+  adjusted with `--multiple-comparison-correction`; tests without valid input
+  are reported as not applicable
+- Ranking by a composite score in 0-1 (quality 40 %, breadth 25 %,
+  mapping efficiency 20 %, gap term 15 %)
+- HTML report plus `comparison.json`, `comparison_matrix.csv`, `pairwise_comparisons.csv`
+
+## Reports and figures
+
+- All colours, fonts, number formats and chart chrome come from `design.py`;
+  do not hard-code colours or palettes in plotting code.
+- Categorical colours follow the entity in a fixed order (`design.series_color`,
+  `comparative_visualizations.set_colors`); status colours are only for the
+  quality category; `design.CHROME["gap_fill"]` only for gaps.
+- Matplotlib figures are drawn inside `@design.styled`, which applies the
+  style in an `rc_context`. Never set global rcParams: a leaked
+  `patch.linewidth = 0` broke seaborn plots in `plot` under matplotlib 3.10.
+- Plotly figures use `design.plotly_layout` (template, legend band) and
+  `design.subplot_note` for empty panels; report div ids are prefixed `fig-`
+  so they never collide with section ids.
+- Both reports share `templates/report.css` and `templates/report.js`.
+  See `docs/report_design_audit_2026-10.md`.
 
 ## Error Handling and Robustness
 
@@ -245,22 +274,19 @@ baitUtils compare -r reference.fasta -o results/ \
 - Continuation with reduced functionality when possible
 
 ### Input Validation
-- FASTA file format validation
-- Parameter range checking
-- File existence verification
-- Memory usage considerations for large datasets
+- argparse value types in `cli_utils.py` (`percent`, `positive_int`, `non_negative_int`)
+- `stats`, `plot`, `evaluate` and `compare` check that their input files exist
+  before starting; `map`, `check` and `fill` fail when the mapper or bedtools reads them
 
 ## Performance Considerations
 
-### Parallel Processing
-- Multi-threaded sequence analysis where beneficial
-- Configurable process counts for compute-intensive operations
-- Memory-efficient streaming for large files
-
-### Caching and Optimization
-- Intermediate file caching for complex workflows
-- Optimized data structures for coverage calculations
-- Efficient algorithms for gap filling optimization
+- `stats` uses a process pool (`--threads`, default all CPUs but one)
+- Coverage is held as one numpy depth array per reference; sequence
+  features are vectorized (`sequence_features.py`) and linear in reference length
+- `evaluate` and `compare` read the reference FASTA once and share it
+  (`CoverageAnalyzer.sequences()`)
+- Coverage is exported run-length encoded (`coverage.bedgraph`); the
+  per-base CSV only with `--per-position-coverage`
 
 ## Integration Workflow
 
