@@ -394,9 +394,12 @@ def perform_mapping(args, temp_dir: Path) -> Path:
         logging.error(str(e))
         sys.exit(1)
     
-    if not psl_file.exists() or psl_file.stat().st_size == 0:
+    if not psl_file.exists():
         logging.error(f"{args.mapper} produced no output")
         sys.exit(1)
+    if psl_file.stat().st_size == 0:
+        # minimap2 writes nothing when no bait aligns; the mapper itself succeeded.
+        logging.warning(f"{args.mapper} reported no alignments; every bait counts as unmapped")
     
     logging.info(f"Mapping completed. Results saved to {psl_file}")
     return psl_file

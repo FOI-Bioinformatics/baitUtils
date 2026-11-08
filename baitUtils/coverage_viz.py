@@ -95,7 +95,13 @@ class CoverageVisualizer:
         ]
         for name, method in steps:
             logging.info(f"Generating {name} figure...")
-            path = method()
+            try:
+                path = method()
+            except Exception as e:
+                # One failing figure must not cost the user the report and the JSON.
+                logging.error(f"Failed to create the {name} figure: {e}")
+                plt.close("all")
+                continue
             if path:
                 written[name] = str(path)
         logging.info(f"{len(written)} figures written to {self.plots_dir}")

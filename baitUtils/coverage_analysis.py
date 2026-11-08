@@ -23,8 +23,9 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 
+from baitUtils.cli_utils import InputError
 from baitUtils.gap_filling_algorithm import OligoMapping
-from baitUtils.mapping_utils import parse_alignments, filter_hits
+from baitUtils.mapping_utils import parse_alignments, filter_hits, read_reference_fasta
 
 
 def merge_uncovered_intervals(
@@ -108,8 +109,8 @@ class GenomeFileHandler:
         """
         chrom_sizes = defaultdict(int)
         if reference_fasta is not None:
-            for record in SeqIO.parse(str(reference_fasta), "fasta"):
-                chrom_sizes[record.id] = len(record.seq)
+            for ref_id, sequence in read_reference_fasta(reference_fasta).items():
+                chrom_sizes[ref_id] = len(sequence)
         else:
             logging.warning("No reference FASTA given; reference sizes are taken from the last mapped base")
             for interval in bed:
@@ -266,8 +267,7 @@ class SequenceProcessor:
         and, when n_split_path is given, the regions split at 'N' runs into
         pieces of at least oligo_length bases.
         """
-        reference_seqs = {record.id: record.seq 
-                          for record in SeqIO.parse(fasta_path, "fasta")}
+        reference_seqs = {ref_id: Seq(sequence) for ref_id, sequence in read_reference_fasta(fasta_path).items()}
         
         uncovered_records = []
         n_split_records = []
@@ -323,9 +323,10 @@ class SequenceLoader:
         """Load reference sequences from FASTA file."""
         sequences = {}
         try:
-            for record in SeqIO.parse(fasta_path, "fasta"):
-                sequences[record.id] = str(record.seq)
+            sequences = read_reference_fasta(fasta_path)
             logging.info(f"Loaded {len(sequences)} reference sequences")
+        except InputError:
+            raise
         except Exception as e:
             logging.error(f"Error loading reference sequences: {e}")
             raise
@@ -352,9 +353,18 @@ class ForcedOligoHandler:
         """Restrict a BedTool to rows whose name is in forced_oligos."""
         if not forced_oligos:
             return bed
-        entries = [str(interval) for interval in bed if interval.name in forced_oligos]
+        entries = []
+        names = set()
+        for interval in bed:  # one pass: a BedTool may be a stream
+            names.add(interval.name)
+            if interval.name in forced_oligos:
+                entries.append(str(interval))
         if not entries:
             raise ValueError("No forced oligos matched the mapped oligos")
+        missing = sorted(forced_oligos - names)
+        if missing:
+            shown = ", ".join(missing[:10]) + (" ..." if len(missing) > 10 else "")
+            logging.warning(f"{len(missing)} forced oligo(s) have no hit passing the filters: {shown}")
         tmp_file = "forced_temp.bed" if temp_dir is None else str(temp_dir / "forced_temp.bed")
         with open(tmp_file, "w") as f:
             f.write("".join(entries))

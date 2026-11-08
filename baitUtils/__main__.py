@@ -1,12 +1,13 @@
 # baitUtils/__main__.py
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from baitUtils.config import load_config, apply_config
-from baitUtils.cli_utils import logging_kwargs
+from baitUtils.cli_utils import InputError, logging_kwargs
 from baitUtils.logging_utils import configure_logging, LEVELS
 from baitUtils._version import __version__
 
@@ -32,7 +33,9 @@ COMMANDS = (
 
 def build_parser() -> Tuple[argparse.ArgumentParser, Dict[str, argparse.ArgumentParser]]:
     """The main parser with one subparser per command."""
-    parser = argparse.ArgumentParser(prog="baitUtils")
+    # No abbreviations: "--conf" would be taken as --config by this parser
+    # but missed by the pre-parser that reads the file, so it was ignored.
+    parser = argparse.ArgumentParser(prog="baitUtils", allow_abbrev=False)
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", type=Path, default=None,
                         help="JSON file with option defaults per command (see baitUtils.config)")
@@ -54,6 +57,10 @@ def _extract_config(argv: List[str]) -> Tuple[Optional[Path], List[str]]:
     return the path and the remaining arguments. A --config without a file
     is a usage error.
     """
+    for arg in argv:
+        name = arg.split("=", 1)[0]
+        if len(name) > 2 and name != "--config" and "--config".startswith(name):
+            raise SystemExit(f"baitUtils: error: {name} is not an option; write --config in full")
     pre = argparse.ArgumentParser(prog="baitUtils", add_help=False, allow_abbrev=False)
     pre.add_argument("--config", type=Path, default=None)
     known, rest = pre.parse_known_args(argv)
@@ -68,13 +75,20 @@ def main(argv: Optional[List[str]] = None) -> None:
     # that its values act as defaults and command-line values win
     config_path, argv = _extract_config(argv)
     if config_path is not None:
-        apply_config(commands, load_config(config_path))
+        try:
+            apply_config(commands, load_config(config_path))
+        except InputError as e:
+            parser.error(f"--config {config_path}: {e}")
 
     args = parser.parse_args(argv)
     args.config = config_path
     configure_logging(**logging_kwargs(args))
     if hasattr(args, "func"):
-        args.func(args)
+        try:
+            args.func(args)
+        except InputError as e:
+            logging.error(str(e))
+            sys.exit(1)
     else:
         parser.print_help()
 

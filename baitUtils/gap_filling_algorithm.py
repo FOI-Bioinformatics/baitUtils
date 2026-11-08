@@ -112,7 +112,9 @@ class OligoScorer:
                     region_key = f"{m.ref_id}:{ustart}-{uend}"
                     difficulty_bonus += overlap * difficulty_scores.get(region_key, 0)
         
-        if total_overlap < min_contribution:
+        # A candidate that adds nothing scores 0 (also with --min-contribution 0,
+        # where max_region_length would be 0 below).
+        if total_overlap == 0 or total_overlap < min_contribution:
             return 0.0
         
         oligo_length = m.end - m.start
@@ -281,7 +283,6 @@ class MultiPassSelector:
         selected_oligos = {m.key for mlist in all_mappings.values() for m in mlist
                            if m.oligo_id in forced_oligos}
         prev_uncovered = float('inf')
-        prev_uncovered_count = float('inf')
         stall_count = 0
 
         pass_num = 1
@@ -301,23 +302,23 @@ class MultiPassSelector:
             logging.info(f"Uncovered bases: {total_uncovered:,}")
             logging.info(f"Uncovered regions >= {uncovered_length_cutoff}bp: {uncovered_count}")
 
-            # Check improvement in uncovered region count
-            if uncovered_count >= prev_uncovered_count:
+            # Progress is measured in uncovered bases. The region count is not a
+            # measure of progress: filling the middle of a gap splits it in two.
+            # A pass can add depth without clearing a base when --min-coverage is
+            # above 1, so several passes without fewer uncovered bases are allowed.
+            if total_uncovered >= prev_uncovered:
                 stall_count += 1
-                logging.info(f"No improvement in uncovered region count. "
-                           f"Stall count: {stall_count}/{stall_rounds}")
+                logging.info(f"No fewer uncovered bases. Stall count: {stall_count}/{stall_rounds}")
                 if stall_count >= stall_rounds:
-                    logging.info(f"Stopping after {stall_rounds} rounds without improvement.")
+                    logging.info(f"Stopping after {stall_rounds} pass(es) without fewer uncovered bases.")
                     break
             else:
                 stall_count = 0
-                
-            if total_uncovered >= prev_uncovered:
-                logging.info("No improvement in uncovered base count. Stopping.")
+                prev_uncovered = total_uncovered
+
+            if total_uncovered == 0:
+                logging.info("Every base reaches the minimum coverage.")
                 break
-                
-            prev_uncovered = total_uncovered
-            prev_uncovered_count = uncovered_count
 
             newly_selected = self.greedy_selector.single_pass_greedy(
                 all_mappings,

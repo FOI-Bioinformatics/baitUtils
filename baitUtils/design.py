@@ -212,6 +212,8 @@ def matplotlib_rc(dpi: int = 300) -> Dict[str, object]:
     "lines.linewidth": 2.0,
     "lines.markersize": 5,
     "patch.linewidth": 0,
+    # Reference and bait names are shown verbatim: "$" must not start mathtext.
+    "text.parse_math": False,
     }
 
 

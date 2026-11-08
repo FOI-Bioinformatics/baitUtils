@@ -45,6 +45,12 @@ def _layout(fig, title: str, height: int, **kwargs) -> None:
     design.plotly_layout(fig, title, height, **kwargs)
 
 
+def _axis_refs(fig, row: int, col: int):
+    """The x and y axis references ("x2", "y2") of a subplot, for shapes."""
+    subplot = fig.get_subplot(row, col)
+    return (subplot.xaxis.plotly_name.replace("axis", ""), subplot.yaxis.plotly_name.replace("axis", ""))
+
+
 def _note(fig, text: str, row: int, col: int) -> None:
     """A panel with nothing to plot says so."""
     design.subplot_note(fig, text, row, col)
@@ -117,6 +123,10 @@ class InteractivePlotter:
             titles.append(f"{design.truncate(ref, 40)} - breadth {s.get('coverage_breadth', 0):.1f}%, "
                           f"mean depth {design.fmt_depth(s.get('mean_depth', 0))}, {len(gaps.get(ref, []))} gap(s)")
         fig = make_subplots(rows=n, cols=1, subplot_titles=titles, vertical_spacing=min(0.12, 0.6 / max(n, 1)))
+        # Gap rectangles and threshold lines are collected and set in one layout
+        # update: fig.add_vrect per gap is quadratic in the number of shapes.
+        shapes = []
+        gap_fill = design.rgba(GAP, 0.18)
         for i, ref in enumerate(refs, 1):
             array = self.coverage_arrays[ref]
             x, y = design.bin_coverage(array, 1200)
@@ -124,12 +134,16 @@ class InteractivePlotter:
                 x=x, y=y, mode="lines", line=dict(color=ACCENT, width=1.5), fill="tozeroy",
                 fillcolor=design.rgba(ACCENT, 0.12), name=ref, showlegend=False,
                 hovertemplate="position %{x:,.0f}<br>depth %{y:.2f}<extra></extra>"), row=i, col=1)
-            for gap in gaps.get(ref, []):
-                fig.add_vrect(x0=gap['start'], x1=gap['end'], fillcolor=design.rgba(GAP, 0.18), line_width=0,
-                              row=i, col=1)
-            fig.add_hline(y=self._min_coverage, line=dict(color=CHROME["ink_muted"], width=1, dash="dot"), row=i, col=1)
+            xref, yref = _axis_refs(fig, i, 1)
+            shapes.extend(dict(type="rect", xref=xref, yref=f"{yref} domain", x0=gap['start'], x1=gap['end'],
+                               y0=0, y1=1, fillcolor=gap_fill, line=dict(width=0), layer="below")
+                          for gap in gaps.get(ref, []))
+            shapes.append(dict(type="line", xref=f"{xref} domain", yref=yref, x0=0, x1=1,
+                               y0=self._min_coverage, y1=self._min_coverage,
+                               line=dict(color=CHROME["ink_muted"], width=1, dash="dot")))
             fig.update_xaxes(range=[0, len(array)], row=i, col=1)
             fig.update_yaxes(rangemode="tozero", title_text="Depth" if i == 1 else None, row=i, col=1)
+        fig.update_layout(shapes=shapes)
         fig.update_xaxes(title_text="Position along reference (bp)", row=n, col=1)
         for annotation in fig.layout.annotations:
             annotation.update(font=dict(size=12, color=CHROME["ink"]), x=0, xanchor="left")

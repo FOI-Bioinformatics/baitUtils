@@ -14,10 +14,11 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 import pandas as pd
 from collections import Counter
-from Bio import SeqIO
 from Bio.SeqUtils import gc_fraction
 
+from baitUtils.cli_utils import InputError
 from baitUtils.coverage_stats import find_gap_intervals
+from baitUtils.mapping_utils import read_reference_fasta
 from baitUtils.sequence_features import encode, repeat_content
 
 
@@ -99,12 +100,12 @@ class GapAnalyzer:
             logging.info(f"Using {len(self.reference_sequences)} reference sequences already loaded")
             return
         try:
-            with open(self.reference_file, 'r') as handle:
-                for record in SeqIO.parse(handle, 'fasta'):
-                    self.reference_sequences[record.id] = str(record.seq)
-            
+            self.reference_sequences.update(read_reference_fasta(self.reference_file))
+
             logging.info(f"Loaded {len(self.reference_sequences)} reference sequences for gap analysis")
             
+        except InputError:
+            raise
         except Exception as e:
             logging.error(f"Error loading reference sequences: {e}")
             raise

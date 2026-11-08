@@ -36,11 +36,15 @@ class PlotGenerator:
                           outdir: str, file_format: str) -> None:
         """Generate and save a histogram for the specified column."""
         plt.figure(figsize=self.figure_size)
+        # A density curve needs at least two distinct values in every group;
+        # constant columns (length, n_count) would make gaussian_kde fail.
         if color_col:
-            sns.histplot(data=df, x=column, hue=color_col, multiple="stack", 
-                        palette="Set1", kde=True)
+            kde = bool(df.groupby(color_col, observed=True)[column].nunique().min() > 1)
+            sns.histplot(data=df, x=column, hue=color_col, multiple="stack",
+                        palette="Set1", kde=kde)
         else:
-            sns.histplot(data=df, x=column, kde=True, color='blue')
+            kde = bool(df[column].nunique() > 1)
+            sns.histplot(data=df, x=column, kde=kde, color='blue')
         plt.title(f'Histogram of {column}')
         plt.xlabel(column)
         plt.ylabel('Frequency')
@@ -211,8 +215,7 @@ class PlotGenerator:
         if dropped:
             logging.warning(f"PCA: dropped {dropped} row(s) with missing values")
         if len(complete) < 2:
-            logging.error("PCA needs at least two complete rows.")
-            return
+            raise ValueError(f"PCA needs at least two rows without missing values; {len(complete)} remain")
         df = complete
         
         # Standardize the data
@@ -404,6 +407,13 @@ def validate_columns(df: pd.DataFrame, columns: Optional[List[str]],
         validated_cols = df.select_dtypes(include='number').columns.tolist()
         if 'kept' in validated_cols:
             validated_cols.remove('kept')
+
+    # Columns without a single value (hairpin_dg and self_dimer_dg when
+    # ViennaRNA was not installed) cannot be plotted and would empty PCA.
+    empty_cols = [col for col in validated_cols if df[col].isna().all()]
+    if empty_cols:
+        logging.warning(f"Columns without values are skipped: {empty_cols}")
+        validated_cols = [col for col in validated_cols if col not in empty_cols]
     
     # Check if we have enough columns for multi-column plots
     required_plots = {'scatterplot', 'jointplot', 'pca', 'heatmap', 'pairplot'}
