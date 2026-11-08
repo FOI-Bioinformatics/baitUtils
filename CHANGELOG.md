@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Changed (second audit, phase 3: compare statistics)
+
+Phase 3 of `docs/code_audit_2026-11.md`. These change reported p-values,
+effect sizes and the ranking, so `compare` results are not directly
+comparable with 0.6.0. Regression tests are in `tests/test_audit2_phase3.py`.
+
+- The window-depth location test is a Wilcoxon signed-rank test paired by
+  window, since both sets cover the same windows; the unpaired Mann-Whitney
+  test missed a consistent per-window difference (B = A + 1x everywhere:
+  p 0.7 unpaired, 8e-6 paired). Windows are paired by reference name.
+  Kolmogorov-Smirnov and Levene remain, described as treating windows as
+  independent. In `comparison.json`, `coverage_distribution.mann_whitney_test`
+  is replaced by `wilcoxon_test` (N-42).
+- Both Wilcoxon tests report the matched-pairs rank-biserial correlation as
+  effect size (-1 to 1, defined when every difference is the same), and
+  their `n` counts the pairs that differ, which are the ones the test uses.
+- The bait-identity test leaves out baits that `--max-hits` turned into
+  unmapped baits; with nothing mapped it is not applicable instead of
+  highly significant (N-41).
+- A Mann-Whitney test whose values are all tied is not applicable instead of
+  applicable with a null p-value (N-45). Half-integer U statistics are
+  printed in full.
+- `comparison.json` keeps the sequence-only reference analysis at the top
+  and each set's coverage correlations and challenging windows under
+  `sets[i].reference_coverage`; they came from the first set only and
+  changed with the order of `--sets` (N-43).
+- The ranking's gap term is the share of the reference not in gaps, and
+  the breadth term uses breadth over non-N bases; counting gaps gave a set
+  that covers nothing almost the full gap weight (N-44).
+- `Uniformity_Diff` in `pairwise_comparisons.csv` is the difference in
+  uniformity (1 - Gini), positive when the first set is more uniform; it
+  was the Gini difference (N-46).
+- The recommendations name the ranking winner first and the best quality
+  score separately when another set has it (N-47).
+- Distinct gap regions merge overlapping gaps across sets (N-48).
+- The effect-size panel shows only signed effects (rank-biserial
+  correlations) (N-49).
+- An empty or blank set name in `--sets` is an error (N-50).
+
 ### Changed (second audit, phase 2: N bases and evaluate semantics)
 
 Phase 2 of `docs/code_audit_2026-11.md`. One rule now holds everywhere:

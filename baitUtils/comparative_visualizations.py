@@ -53,6 +53,18 @@ MATRIX_METRICS = [
 ]
 
 
+def signed_effects(tests):
+    """
+    The (label, test) pairs whose effect size has a direction: the
+    rank-biserial correlations of the Wilcoxon and Mann-Whitney tests, both
+    in -1..1 and positive when the first set is larger. KS D, the Levene
+    variance ratio and Kendall's W are never negative and stay in the
+    report's tables instead of a "first set larger" axis.
+    """
+    return [(label, t) for label, t in tests if np.isfinite(t.effect_size)
+            and t.test_name.startswith(("Wilcoxon", "Mann-Whitney"))]
+
+
 def set_colors(names: List[str]) -> Dict[str, str]:
     """One categorical colour per set, by position."""
     return {name: design.series_color(i) for i, name in enumerate(names)}
@@ -186,7 +198,7 @@ class ComparativeVisualizer:
         rows: List[tuple] = [(m.replace('_', ' '), t) for m, t in tests.items()]
         if len(oligo_sets) == 2:
             dist = differential_analyzer.compare_coverage_distributions(oligo_sets[0], oligo_sets[1])
-            rows += [("window depth: KS", dist.ks_test), ("window depth: Mann-Whitney", dist.mann_whitney_test),
+            rows += [("window depth: KS", dist.ks_test), ("window depth: paired Wilcoxon", dist.wilcoxon_test),
                      ("window depth: Levene", dist.levene_test)]
             identity = differential_analyzer.compare_oligo_identity(oligo_sets[0], oligo_sets[1])
             rows.append(("bait identity", identity))
@@ -214,7 +226,7 @@ class ComparativeVisualizer:
         ax.set_title("Tests (adjusted p-values)")
 
         ax = axes[0, 1]
-        effects = [(label, t) for label, t in live if np.isfinite(t.effect_size)]
+        effects = signed_effects(live)
         if effects:
             y = np.arange(len(effects))[::-1]
             values = [t.effect_size for _, t in effects]
@@ -222,11 +234,12 @@ class ComparativeVisualizer:
             ax.axvline(0, color=CHROME["axis"], linewidth=0.8)
             ax.set_yticks(y)
             ax.set_yticklabels([label for label, _ in effects], fontsize=8.5)
-            ax.set_xlabel("Effect size (rank-biserial r, paired d, or Kendall's W)")
+            ax.set_xlim(-1.05, 1.05)
+            ax.set_xlabel("Rank-biserial correlation (-1 to 1)")
             style_axes(ax, grid="x")
             ax.spines["left"].set_visible(False)
         else:
-            empty_panel(ax, "No effect size to show")
+            empty_panel(ax, "No signed effect size to show")
         ax.set_title("Effect sizes (positive: first set larger)")
 
         ax = axes[1, 0]

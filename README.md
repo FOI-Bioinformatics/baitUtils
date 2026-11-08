@@ -309,20 +309,28 @@ each column) and `statistical_comparison`;
 `interactive_comparative_plots/` holds `comparison_dashboard.html` (coverage
 profiles with one line per set) and `metric_comparison.html` (every metric as
 a fraction of the best set). Each set keeps one colour in every figure and
-table. `--plot-format` and `--plot-dpi` work as in `evaluate`. The compare
+table. `--plot-format` and `--plot-dpi` work as in `evaluate`. In
+`comparison.json`, `reference_analysis` holds the per-reference sequence
+features and difficulty (the same for every set), and each set's
+`reference_coverage` holds its own feature-coverage correlations and
+challenging windows. The compare
 report always loads plotly.js from a CDN; it has no `--offline-plots`.
 Sets are ranked by a composite score in 0 to 1: quality score (40 %),
-coverage breadth (25 %), mapping efficiency (20 %) and a gap term that falls
-from 1 at no gaps to 0 at 100 gaps (15 %).
+coverage breadth over non-N bases (25 %), mapping efficiency (20 %) and a
+gap term, the share of the reference not in gaps (15 %).
 
 Statistical tests are computed on observed data:
 
-- Coverage distributions (two sets): Kolmogorov-Smirnov, Mann-Whitney U and
-  Levene on mean depth per 1000 bp window
+- Coverage distributions (two sets), on mean depth per 1000 bp window: a
+  Wilcoxon signed-rank test paired by window (both sets cover the same
+  windows) for a difference in depth, and Kolmogorov-Smirnov and Levene for
+  the shape and spread of the window depths (these treat windows as
+  independent)
 - Per-reference metrics (breadth, mean depth, gap count): Wilcoxon
   signed-rank for two sets, Friedman for more, each reference being one
   paired observation
-- Best-hit identity per bait (two sets): Mann-Whitney U
+- Best-hit identity per mapped bait (two sets; baits that `--max-hits`
+  excludes do not count): Mann-Whitney U
 - Gap sizes (two sets): Mann-Whitney U
 
 P-values are adjusted within each family of tests with

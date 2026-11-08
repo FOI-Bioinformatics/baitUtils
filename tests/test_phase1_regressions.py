@@ -184,8 +184,9 @@ class TestDifferentialConsistency:
         counts_b = analyzer._gaps_per_reference(b)
         assert counts_a == {'r0': 1} and counts_b == {'r0': 1, 'r1': 1}
         test = analyzer.compare_quality_metrics([a, b])['gap_count']
-        # Only r1 differs (0 vs 1), so the Wilcoxon test runs on that difference
-        assert test.applicable and test.n == 8
+        # Only r1 differs (0 vs 1), so the Wilcoxon test runs on that one
+        # difference; n counts the references that differ (scipy drops zeros)
+        assert test.applicable and test.n == 1
 
     def test_touching_gaps_do_not_overlap(self):
         """F-15: half-open intervals that touch share no base."""
@@ -271,5 +272,7 @@ class TestComparePlotSettings:
         assert "/10" not in html
         assert "Significance labels: *** p&lt;=0.001, ** p&lt;=0.01, * p&lt;=0.05, ns p&gt;0.05" in html
         data = json.loads((out / "comparison.json").read_text())
-        assert data["reference_analysis"]["coverage_correlations"]["applicable"] is True
+        # the correlations depend on each set's coverage and are stored per set (N-43)
+        assert all(s["reference_coverage"]["coverage_correlations"]["applicable"] is True for s in data["sets"])
+        assert set(data["reference_analysis"]) == {"sequence_features", "challenging_regions"}
         assert all(0.0 <= score <= 1.0 for _, score in data["ranking"])

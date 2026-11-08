@@ -30,6 +30,22 @@ from baitUtils.comparative_visualizations import ComparativeVisualizer
 from baitUtils.comparative_report_generator import ComparativeReportGenerator
 
 
+SEQUENCE_KEYS = ('sequence_features', 'challenging_regions')
+COVERAGE_KEYS = ('coverage_correlations', 'challenging_windows')
+
+
+def _sequence_part(reference_analysis):
+    """Per-reference features and difficulty: they do not depend on any set's coverage."""
+    record = reference_analysis_record(reference_analysis)
+    return {key: record[key] for key in SEQUENCE_KEYS} if record else None
+
+
+def _coverage_part(reference_analysis):
+    """Feature-coverage correlations and challenging windows of one set."""
+    record = reference_analysis_record(reference_analysis)
+    return {key: record[key] for key in COVERAGE_KEYS} if record else None
+
+
 def add_arguments(parser):
     """Add command-line arguments for the 'compare' subcommand."""
     parser.add_argument('--version', action='version', version=f"baitUtils compare {__version__}")
@@ -300,9 +316,12 @@ def main(args):
             'gap_analysis': {k: v for k, v in r.gap_analysis.items() if k not in ('feature_analysis', 'gap_features')},
             'quality_score': r.quality_score.to_dict(),
             'benchmarks': r.benchmark_results,
+            # coverage-dependent part of the reference analysis, per set
+            'reference_coverage': _coverage_part(r.reference_analysis),
         } for r in analyzer.oligo_sets],
         'comparison_matrix': comparison_matrix,
-        'reference_analysis': reference_analysis_record(analyzer.reference_analysis),
+        # sequence-only part, the same for every set
+        'reference_analysis': _sequence_part(analyzer.reference_analysis),
         'ranking': analyzer.generate_ranking(),
         'statistics': statistics,
     }, output_dir / "comparison.json")
@@ -366,6 +385,10 @@ def parse_oligo_sets(set_specs: List[str]) -> Dict[str, str]:
     
     for spec in set_specs:
         name, file_path = spec.split(':', 1)
+        name = name.strip()
+        if not name:
+            logging.error(f"Empty oligo set name in '{spec}'; use 'Name:path/to/oligos.fasta'")
+            sys.exit(1)
         
         # Validate name uniqueness
         if name in oligo_sets:

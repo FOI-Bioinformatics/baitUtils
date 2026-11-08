@@ -212,7 +212,8 @@ Grouped so that each phase can ship on its own, most valuable first.
    `sequence_features`, `gap_analysis`, `reference_analyzer` and the
    scorer: N-28, N-29, N-30, N-12, N-11, F-52. Then N-31 (repeat measure),
    N-27 (nothing covered), N-26, N-33, N-34, N-35.
-3. **`compare` statistics.** N-41, N-42 (paired window test; a design
+3. **`compare` statistics.** *Fixed (unreleased): all items below, with
+   regression tests in `tests/test_audit2_phase3.py`.* N-41, N-42 (paired window test; a design
    change that alters reported p-values, so it needs a CHANGELOG note),
    N-43, N-44 (ranking change, also user-visible), N-45 to N-50.
 4. **`check` and `fill` correctness.** N-17, N-18, N-19, N-20, N-21,
