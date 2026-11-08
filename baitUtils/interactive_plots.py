@@ -297,7 +297,7 @@ class InteractivePlotter:
                            else 1 - self.coverage_stats['coverage_gini'], targets['depth_uniformity']),
             "Mapping": (self.coverage_stats.get('mapping_efficiency'), targets['mapping_efficiency']),
         }
-        rows = [(k, v, t) for k, (v, t) in observed.items() if v is not None]
+        rows = [(k, v, t) for k, (v, t) in observed.items() if v is not None and np.isfinite(v)]
         if rows:
             ratio = [min(v / t, 1.5) if t else 0 for _, v, t in rows]
             fig.add_trace(go.Scatter(x=[1.0] * len(rows), y=[r[0] for r in rows], mode="markers",

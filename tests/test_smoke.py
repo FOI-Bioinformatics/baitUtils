@@ -72,9 +72,12 @@ class TestSmokeSequenceAnalysis(unittest.TestCase):
         entropy_single = self.analyzer.calculate_entropy('AAAA')
         self.assertEqual(entropy_single, 0.0)
         
-        # Empty sequence should have zero entropy
-        entropy_empty = self.analyzer.calculate_entropy('')
-        self.assertEqual(entropy_empty, 0.0)
+        # Empty or N-only sequence: undefined, reported as 'NA' like Tm
+        self.assertEqual(self.analyzer.calculate_entropy(''), 'NA')
+        self.assertEqual(self.analyzer.calculate_entropy('NNNN'), 'NA')
+
+        # N does not count as a fifth symbol (F-52: entropy above 2 bits)
+        self.assertEqual(self.analyzer.calculate_entropy('ACGTNNNN'), 2.0)
     
     def test_n_count(self):
         """Test N base counting."""

@@ -71,8 +71,12 @@ class SequenceAnalyzer:
             sequence: DNA sequence string
             
         Returns:
-            Melting temperature in Celsius or 'NA' if calculation fails
+            Melting temperature in Celsius, or 'NA' if it cannot be computed.
+            A sequence with N or another ambiguity code gives 'NA': Biopython
+            drops those bases and would report the Tm of the joined flanks.
         """
+        if not sequence or set(sequence.upper()) - set("ACGT"):
+            return 'NA'
         try:
             tm = mt.Tm_NN(
                 sequence.upper(),
@@ -151,20 +155,15 @@ class SequenceAnalyzer:
     
     def calculate_entropy(self, sequence: str) -> float:
         """
-        Calculate Shannon entropy of the sequence.
-        
-        Args:
-            sequence: Input sequence
-            
-        Returns:
-            Shannon entropy value
+        Shannon entropy (bits) of the A/C/G/T composition, at most 2.
+
+        N and other symbols are not counted (they used to count as a fifth
+        symbol, giving values above 2 bits); 'NA' without A, C, G or T.
         """
-        if not sequence:
-            return 0.0
-        
-        # Count frequency of each character
-        counts = Counter(sequence.upper())
-        length = len(sequence)
+        counts = Counter(base for base in sequence.upper() if base in "ACGT")
+        length = sum(counts.values())
+        if length == 0:
+            return 'NA'
         
         # Calculate entropy
         entropy = 0.0
@@ -206,7 +205,8 @@ class SequenceAnalyzer:
     
     def count_homopolymer_runs(self, sequence: str, min_length: int = 3) -> List[Tuple[str, int, int]]:
         """
-        Count homopolymer runs (consecutive identical bases).
+        Count homopolymer runs (consecutive identical bases). Runs of N or of
+        another non-ACGT symbol are not homopolymers.
         
         Args:
             sequence: Input sequence
@@ -228,14 +228,14 @@ class SequenceAnalyzer:
             if sequence[i] == current_base:
                 current_length += 1
             else:
-                if current_length >= min_length:
+                if current_length >= min_length and current_base in "ACGT":
                     runs.append((current_base, current_start, current_length))
                 current_base = sequence[i]
                 current_start = i
                 current_length = 1
         
         # Check final run
-        if current_length >= min_length:
+        if current_length >= min_length and current_base in "ACGT":
             runs.append((current_base, current_start, current_length))
         
         return runs

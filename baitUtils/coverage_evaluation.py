@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 from baitUtils._version import __version__
-from baitUtils.cli_utils import (add_argument, add_logging_arguments, logging_kwargs, percent,
+from baitUtils.cli_utils import (add_argument, add_logging_arguments, logging_kwargs, percent, positive_float,
                                  positive_int, non_negative_int)
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.bedtools_support import require_bedtools
@@ -87,7 +87,7 @@ def add_coverage_arguments(parser: argparse.ArgumentParser, min_coverage_help: s
                              "and export of uncovered regions")
     
     # Coverage and filtering parameters
-    add_argument(parser, "--min-coverage", dest="min_coverage", type=float, default=1.0,
+    add_argument(parser, "--min-coverage", dest="min_coverage", type=positive_float, default=1.0,
                  aliases=("--min_coverage",), help=min_coverage_help)
     add_argument(parser, "--min-length", dest="min_length", type=non_negative_int, default=100,
                  aliases=("--min_length",),

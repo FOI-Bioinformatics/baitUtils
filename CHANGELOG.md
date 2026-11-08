@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### Changed (second audit, phase 2: N bases and evaluate semantics)
+
+Phase 2 of `docs/code_audit_2026-11.md`. One rule now holds everywhere:
+statistics are computed over A, C, G and T, and are undefined (NaN, `null`
+in JSON, `NA` in the `stats` table, a dash in the report) where there are
+none. These changes alter numbers for references with N runs, so results
+are not directly comparable with 0.6.0 for such references. Regression
+tests are in `tests/test_audit2_phase2.py`.
+
+- Windows and references of N only have no GC, entropy, homopolymer or
+  repeat content, and window breadth and depth are computed over non-N
+  bases. N windows no longer create GC-coverage correlations, a "0-10 %"
+  GC decile, or "extreme GC" and "low complexity" flags (N-28).
+- Gap features (GC, entropy, homopolymers, low complexity) are computed
+  over A, C, G and T, so a gap over an N run is neither GC-extreme nor
+  low-complexity and gets only the N-content suggestion (N-29). An empty
+  gap slice returns the full set of features, which a negative
+  `--gap-extend` used to crash on (N-33).
+- A gap is an uncovered stretch of real sequence: N runs are not gaps and
+  split them, gap percentage is over non-N bases, and the per-reference
+  gap counts and `data/gap_regions.bed` follow the same rule. The quality
+  score and the breadth benchmark use breadth over non-N bases, and an
+  all-N contig no longer counts as "extreme GC" (N-30). A 20 kb reference
+  with a 5 kb N run and every other base covered now scores 0.91
+  (Excellent) instead of 0.73.
+- Gap repeat content is the share of duplicated 12-mers within the gap;
+  6-mers measured gap length (70 % on a random 5 kb gap) and triggered a
+  masking suggestion for every long gap (N-31).
+- With no base covered, the Gini coefficient and CV are undefined instead
+  of 1.0 and infinity, so uniformity is "not applicable" and the
+  "CV=inf" recommendation is gone (N-27).
+- `--min-coverage` must be above 0 in `evaluate`, `compare`, `check` and
+  `fill`; 0 counted every base as covered (N-26).
+- One set of half-open gap size classes, starting at `--min-gap-size`, is
+  used for the size distribution and the size-stratified analysis; the
+  latter's keys are now the same ranges instead of Small/Medium/Large/Very
+  Large (N-34).
+- `gap_analysis.txt` prints gaps as 1-based inclusive coordinates
+  (`chrA:1081-1380`), the samtools and IGV convention; the JSON and BED
+  files stay 0-based half-open (N-35).
+- `stats`: Tm is `NA` for a bait with N or another ambiguity code (Biopython
+  dropped them and reported the Tm of the joined flanks) (N-11); runs of N
+  are not homopolymers (N-12); entropy is over A, C, G and T, at most 2
+  bits (F-52).
+
 ### Fixed (second audit, phase 1)
 
 Phase 1 of `docs/code_audit_2026-11.md` (finding numbers below refer to

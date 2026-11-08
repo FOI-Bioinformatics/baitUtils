@@ -68,7 +68,9 @@ class BenchmarkAnalyzer:
 
     def benchmark_coverage_breadth(self) -> BenchmarkResult:
         """Observed coverage breadth (%) against the target breadth."""
-        actual = float(self.coverage_stats.get('coverage_breadth', 0.0))
+        # over the bases that can be covered (N excluded), as in the quality score
+        actual = float(self.coverage_stats.get('coverage_breadth_non_n',
+                                               self.coverage_stats.get('coverage_breadth', 0.0)))
         target = float(self.targets['coverage_breadth'])
         ratio = min(1.0, actual / target) if target > 0 else 1.0
         potential = max(0.0, target - actual)

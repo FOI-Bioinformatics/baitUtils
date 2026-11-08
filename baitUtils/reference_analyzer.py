@@ -31,6 +31,13 @@ from baitUtils.sequence_features import (
 )
 
 
+
+def _nanmean(values) -> float:
+    """Mean of the finite values, NaN when there are none (no RuntimeWarning)."""
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    return float(values.mean()) if values.size else float("nan")
+
 class ReferenceAnalyzer:
     """Analyze reference sequence features and their relation to coverage."""
 
@@ -122,8 +129,9 @@ class ReferenceAnalyzer:
             codes = encode(sequence)
             windows = window_features(codes, self.window_size, self.step_size)
             if ref_id in self.coverage_arrays:
+                # breadth and depth over the bases that are not N (N cannot be covered)
                 windows.update(window_coverage(self.coverage_arrays[ref_id], self.window_size,
-                                               self.step_size, self.min_coverage))
+                                               self.step_size, self.min_coverage, n_mask=codes == 4))
             self.window_features[ref_id] = windows
 
             flagged = self._flag_windows(windows)
@@ -163,14 +171,17 @@ class ReferenceAnalyzer:
 
         pooled = {key: np.concatenate([self.window_features[r][key] for r in refs])
                   for key in self.WINDOW_FEATURES + ("breadth", "mean_depth")}
-        n = int(pooled["breadth"].size)
+        # Windows of N only have no composition and no assessable bases: they
+        # take part in no correlation (they used to count as 0 % GC, 0 % breadth).
+        assessable = np.isfinite(pooled["breadth"])
+        n = int(assessable.sum())
         features: Dict[str, Dict[str, float]] = {}
         for name in self.WINDOW_FEATURES:
-            x = pooled[name]
             entry: Dict[str, float] = {}
             for target in ("breadth", "mean_depth"):
-                y = pooled[target]
-                if n < 3 or np.all(x == x[0]) or np.all(y == y[0]):
+                keep = np.isfinite(pooled[name]) & np.isfinite(pooled[target])
+                x, y = pooled[name][keep], pooled[target][keep]
+                if x.size < 3 or np.all(x == x[0]) or np.all(y == y[0]):
                     entry[f"rho_{target}"] = float("nan")
                     entry[f"p_{target}"] = float("nan")
                 else:
@@ -188,8 +199,8 @@ class ReferenceAnalyzer:
             if sel.any():
                 gc_bins.append({
                     "gc_min": int(lo), "gc_max": int(hi), "windows": int(sel.sum()),
-                    "mean_breadth": float(pooled["breadth"][sel].mean()),
-                    "mean_depth": float(pooled["mean_depth"][sel].mean()),
+                    "mean_breadth": float(np.nanmean(pooled["breadth"][sel])),
+                    "mean_depth": float(np.nanmean(pooled["mean_depth"][sel])),
                 })
 
         self.coverage_correlations = {
@@ -265,8 +276,8 @@ class ReferenceAnalyzer:
         return {
             "total_sequences": len(feats),
             "total_length": int(sum(f["length"] for f in feats)),
-            "mean_gc_content": float(np.mean([f["gc_content"] for f in feats])),
-            "mean_complexity": float(np.mean([f["shannon_entropy"] for f in feats])),
+            "mean_gc_content": _nanmean([f["gc_content"] for f in feats]),
+            "mean_complexity": _nanmean([f["shannon_entropy"] for f in feats]),
             "sequences_with_extreme_gc": sum(1 for f in feats
                                              if f["gc_content"] < self.EXTREME_GC_LOW or f["gc_content"] > self.EXTREME_GC_HIGH),
             "sequences_with_high_repeats": sum(1 for f in feats if f["repeat_content"] > self.HIGH_REPEAT),

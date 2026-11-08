@@ -74,6 +74,14 @@ def percent(value: str) -> float:
     return number
 
 
+def positive_float(value: str) -> float:
+    """argparse type for a number above 0."""
+    number = float(value)
+    if not number > 0:
+        raise argparse.ArgumentTypeError(f"{value} must be above 0")
+    return number
+
+
 def positive_int(value: str) -> int:
     """argparse type for an integer of at least 1."""
     number = int(value)
