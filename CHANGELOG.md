@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Fixed (second audit, phase 1)
+
+Phase 1 of `docs/code_audit_2026-11.md` (finding numbers below refer to
+that report): hangs, crashes and silent failures on realistic input. Each
+fix has a regression test in `tests/test_audit2_phase1.py`.
+
+- `evaluate` no longer hangs on references with thousands of gaps: the
+  interactive coverage profile sets all gap rectangles in one layout update
+  instead of one `add_vrect` call per gap, which was quadratic (2,800 gaps:
+  about an hour per figure, now under a second) (N-51).
+- A `$` in a reference name no longer crashes `evaluate`: the figure style
+  turns off matplotlib's mathtext, and one failing figure is logged without
+  stopping the others, the report or `evaluation.json` (N-52).
+- The psLayout header that pblat writes is read as header: the "Skipped 1
+  malformed line" warning on every pblat file is gone and the filtered PSL
+  keeps all five header lines (N-1).
+- `evaluate --mapper minimap2` treats an empty PAF (no bait aligned) as no
+  hits instead of a mapper failure, as with pblat (N-32).
+- `fill` stops after `--stall-rounds` passes in a row without fewer
+  uncovered bases; it used to count a pass that split a gap as a stall and
+  stopped while coverage was still improving (N-14). Forced baits are always
+  written to the output, and forced IDs without a passing hit are named in a
+  warning, also by `check` (N-15). `--min-contribution 0` no longer fails
+  with "math domain error" (N-16).
+- Reference FASTA files are read by one function for every command:
+  duplicate sequence ids are an error (they were merged and one record was
+  lost), and empty records are skipped with a warning (they crashed
+  `evaluate` and `check`) (N-24, N-25). Input errors of this kind are
+  reported as one line and exit status 1, without a traceback.
+- `stats`: a bait whose Tm or free energy cannot be computed fails a filter
+  on that value (N-6); `--min-hairpin-dg` and `--min-dimer-dg` without
+  ViennaRNA are an error instead of being ignored (N-7).
+- `plot` skips columns without values (the energy columns without
+  ViennaRNA), draws a histogram's density curve only where it is defined,
+  and reports a PCA that cannot run as a failure instead of "success"
+  (N-8).
+- Configuration files: values are checked like command-line values (type,
+  choices, booleans for switches, lists for multi-value options), and a
+  missing file, invalid JSON or a section that is not an object is a usage
+  error instead of a traceback (N-38). An abbreviated `--config` such as
+  `--conf` is refused; it used to be accepted and the file ignored (N-39).
+
 ### Documentation
 
 - README: installation from the release wheel or a clone (baitUtils is not

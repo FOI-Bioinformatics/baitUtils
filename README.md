@@ -63,7 +63,10 @@ Two options sit in front of the command name (`--config` may also follow it):
 - `--config file.json` supplies option defaults. The file maps command
   names to option destinations (`--min-identity` is `min_identity`), with a
   `common` block whose keys apply to every command that has them; values on
-  the command line override it.
+  the command line override it. Values are checked like command-line values
+  (type, allowed choices, `true`/`false` for switches, a list for `--sets`),
+  and an invalid value stops the run with a usage error. Write `--config`
+  in full; abbreviations such as `--conf` are refused.
 
 ```json
 {
@@ -94,7 +97,9 @@ salt and strand concentrations from `--na`, `--dnac1`, `--dnac2`),
 Filters: `--length` with `--complete`, `--no-ns`, `--min-gc/--max-gc`,
 `--min-tm/--max-tm`, `--max-mask`, `--min-hairpin-dg`, `--min-dimer-dg`. Free
 energies are negative; a filter rejects baits whose value is below the given
-threshold. `--threads` sets the number of processes (default: all CPUs but
+threshold. A bait whose Tm or free energy cannot be computed (an empty or
+all-N record) fails a filter on that value. The two energy filters need
+ViennaRNA; without it they are an error rather than ignored. `--threads` sets the number of processes (default: all CPUs but
 one); `--sample N` analyses only the first N sequences.
 
 ### plot
@@ -184,9 +189,10 @@ difficulty and reference GC), and accepts candidates subject to
 `--spacing-distance` between start positions, at most `--max-oligos-per-pass`
 per pass when given. Selection is per mapping, so a
 bait with several loci contributes only the locus that was chosen. Stops at
-`--max-passes`, after `--stall-rounds` passes without improvement, or when the
-uncovered base count stops decreasing. Baits in `--forced-oligos` are always
-included. Because of the spacing rule, depth above 1 at a position can only
+`--max-passes`, after `--stall-rounds` passes in a row without fewer
+uncovered bases (default 3), or when every base reaches `--min-coverage`.
+Baits in `--forced-oligos` are always included; those without a hit that
+passes the filters are kept in the output with a warning. Because of the spacing rule, depth above 1 at a position can only
 come from different baits that start at least the spacing apart, so
 `--min-coverage` above 1 is reported with a warning.
 

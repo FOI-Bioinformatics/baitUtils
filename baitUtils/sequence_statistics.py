@@ -18,7 +18,8 @@ from typing import List, Dict, Any, Optional
 from Bio import SeqIO
 
 from baitUtils._version import __version__
-from baitUtils.cli_utils import add_argument, add_logging_arguments, logging_kwargs, positive_int
+from baitUtils import sequence_analysis
+from baitUtils.cli_utils import InputError, add_argument, add_logging_arguments, logging_kwargs, positive_int
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.sequence_analysis import SequenceAnalyzer
 
@@ -80,9 +81,12 @@ class SequenceFilter:
         if self.max_gc is not None and stats['gc_content'] > self.max_gc:
             return False
         
-        # Melting temperature filters
+        # Melting temperature filters. A sequence whose Tm cannot be computed
+        # (empty, or no A/C/G/T) fails a Tm filter the user asked for.
         tm = stats['melting_temperature']
-        if tm != 'NA':
+        if self.min_tm is not None or self.max_tm is not None:
+            if tm == 'NA':
+                return False
             if self.min_tm is not None and tm < self.min_tm:
                 return False
             if self.max_tm is not None and tm > self.max_tm:
@@ -92,10 +96,13 @@ class SequenceFilter:
         if self.max_mask is not None and stats['masked_percentage'] > self.max_mask:
             return False
         
-        # Secondary structure filters: reject sequences with dG below the threshold
+        # Secondary structure filters: reject sequences with dG below the threshold,
+        # and sequences whose dG cannot be computed when the filter is set
         for key, threshold in (('hairpin_dg', self.min_hairpin_dg), ('self_dimer_dg', self.min_dimer_dg)):
+            if threshold is None:
+                continue
             value = stats.get(key, 'NA')
-            if threshold is not None and value != 'NA' and value < threshold:
+            if value == 'NA' or value < threshold:
                 return False
         
         return True
@@ -378,6 +385,9 @@ def main(args) -> None:
     if not os.path.exists(args.input):
         logging.error(f"Input file not found: {args.input}")
         sys.exit(1)
+    if (args.min_hairpin_dg is not None or args.min_dimer_dg is not None) and not sequence_analysis.HAS_VIENNA_RNA:
+        raise InputError("--min-hairpin-dg and --min-dimer-dg need ViennaRNA (Python module RNA), which is "
+                         "not installed; install it (conda install -c bioconda viennarna) or drop these filters")
     
     # Initialize filter
     seq_filter = SequenceFilter(

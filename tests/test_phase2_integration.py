@@ -78,7 +78,7 @@ class TestReferenceAnalyzer(unittest.TestCase):
         """Clean up test fixtures."""
         shutil.rmtree(self.test_dir)
     
-    @patch('baitUtils.reference_analyzer.SeqIO')
+    @patch('baitUtils.mapping_utils.SeqIO')
     def test_analyze_reference(self, mock_seqio):
         """Test reference sequence analysis."""
         # Mock SeqIO.parse

@@ -20,8 +20,40 @@ from pathlib import Path
 import pandas as pd
 from Bio import SeqIO
 
+from baitUtils.cli_utils import InputError
+
 
 PSL_HEADER_PREFIXES = ("psLayout", "match", "-", "#", "no matches")
+
+
+def read_reference_fasta(fasta_path: Union[str, Path]) -> Dict[str, str]:
+    """
+    Reference sequences by id, in file order, for every command.
+
+    Duplicate ids are an error: the records would otherwise be merged and one
+    of them silently lost. Empty records are skipped with a warning, since a
+    reference of length 0 can hold no hits and breaks coverage arrays and
+    bedtools genome files.
+    """
+    sequences: Dict[str, str] = {}
+    empty: List[str] = []
+    duplicates: List[str] = []
+    for record in SeqIO.parse(str(fasta_path), "fasta"):
+        if record.id in sequences or record.id in empty:
+            duplicates.append(record.id)
+            continue
+        sequence = str(record.seq)
+        if not sequence:
+            empty.append(record.id)
+            continue
+        sequences[record.id] = sequence
+    if duplicates:
+        shown = ", ".join(sorted(set(duplicates))[:10])
+        raise InputError(f"Duplicate sequence id(s) in {fasta_path}: {shown}. "
+                         "Reference ids must be unique.")
+    if empty:
+        logging.warning(f"Skipped {len(empty)} empty record(s) in {fasta_path}: {', '.join(empty[:10])}")
+    return sequences
 
 
 @dataclass
@@ -125,6 +157,28 @@ def is_psl_header(line: str) -> bool:
     return line.startswith(PSL_HEADER_PREFIXES)
 
 
+def is_psl_data_line(line: str) -> bool:
+    """True for a line that starts like a PSL record (an integer first column)."""
+    first = line.split("\t", 1)[0].strip()
+    return first.isdigit()
+
+
+def read_psl_header(psl_path: Union[str, Path]) -> List[str]:
+    """
+    Every line before the first PSL record, verbatim (blank lines included).
+
+    pblat and BLAT write a five-line psLayout header whose fourth line starts
+    with spaces, so header detection is positional rather than by prefix.
+    """
+    header = []
+    with open(psl_path) as fh:
+        for line in fh:
+            if is_psl_data_line(line):
+                break
+            header.append(line.rstrip("\n"))
+    return header
+
+
 def parse_psl(psl_path: Union[str, Path]) -> Iterator[PSLHit]:
     """
     Yield PSLHit records from a PSL file, skipping header lines.
@@ -134,8 +188,14 @@ def parse_psl(psl_path: Union[str, Path]) -> Iterator[PSLHit]:
     the log.
     """
     skipped = 0
+    in_header = True
     with open(psl_path) as fh:
         for line in fh:
+            if in_header:
+                # Everything before the first record is header, whatever it starts with.
+                if not is_psl_data_line(line):
+                    continue
+                in_header = False
             if not line.strip() or is_psl_header(line):
                 continue
             hit = parse_psl_line(line)
@@ -490,14 +550,7 @@ class PSLParser:
         PSLParser.last_hit_table = build_hit_table(kept)
 
         if filtered_output:
-            header_lines = []
-            if alignment_format(psl_file) == "psl":
-                with open(psl_file) as fh:
-                    for line in fh:
-                        if is_psl_header(line):
-                            header_lines.append(line.rstrip("\n"))
-                        elif line.strip():
-                            break
+            header_lines = read_psl_header(psl_file) if alignment_format(psl_file) == "psl" else []
             PSLParser._write_filtered_psl(filtered_output, header_lines, filtered_hits)
             logging.info(f"Wrote {len(filtered_hits)} filtered hits to {filtered_output}")
 

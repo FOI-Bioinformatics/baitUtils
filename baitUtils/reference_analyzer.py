@@ -24,8 +24,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 from scipy import stats
-from Bio import SeqIO
 
+from baitUtils.mapping_utils import read_reference_fasta
 from baitUtils.sequence_features import (
     encode, sequence_summary, window_features, window_coverage,
 )
@@ -106,9 +106,7 @@ class ReferenceAnalyzer:
         if self.reference_sequences:
             logging.info(f"Using {len(self.reference_sequences)} reference sequences already loaded")
             return
-        with open(self.reference_file) as handle:
-            for record in SeqIO.parse(handle, "fasta"):
-                self.reference_sequences[record.id] = str(record.seq)
+        self.reference_sequences.update(read_reference_fasta(self.reference_file))
         logging.info(f"Loaded {len(self.reference_sequences)} reference sequences")
 
     # -------------------------------------------------------------- features

@@ -16,6 +16,13 @@ from typing import Iterable
 from baitUtils.logging_utils import LEVELS
 
 
+class InputError(ValueError):
+    """
+    A problem with the user's input (a file or an option value) that is
+    reported as one error line and exit status 1, without a traceback.
+    """
+
+
 def register_alias(parser: argparse.ArgumentParser, action: argparse.Action, *aliases: str) -> None:
     """
     Accept each alias as another spelling of an existing option. The alias

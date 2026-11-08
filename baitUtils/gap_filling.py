@@ -112,12 +112,21 @@ class GapFillingProcessor:
         )
         
         # Write results
-        self._write_results(args, selected_oligos, mappings_dict, genome_file)
+        self._write_results(args, selected_oligos, mappings_dict, genome_file, forced_oligos)
     
-    def _write_results(self, args, selected_oligos, mappings_dict, genome_file) -> None:
+    def _write_results(self, args, selected_oligos, mappings_dict, genome_file,
+                       forced_oligos=frozenset()) -> None:
         """Write out all results and perform final coverage analysis."""
+        # Forced baits are always part of the selection, also those without a
+        # passing hit; those cannot add coverage, so the user is told.
+        mapped_ids = {m.oligo_id for mlist in mappings_dict.values() for m in mlist}
+        unmapped_forced = sorted(set(forced_oligos) - mapped_ids)
+        if unmapped_forced:
+            shown = ", ".join(unmapped_forced[:10]) + (" ..." if len(unmapped_forced) > 10 else "")
+            logging.warning(f"{len(unmapped_forced)} forced oligo(s) have no hit passing the filters and "
+                            f"add no coverage; they are kept in the output: {shown}")
         # Write selected oligos (IDs) and the selected mappings (loci)
-        selected_ids = sorted({key[0] for key in selected_oligos})
+        selected_ids = sorted({key[0] for key in selected_oligos} | set(forced_oligos))
         logging.info(f"Final selection contains {len(selected_ids)} oligos "
                      f"({len(selected_oligos)} mappings).")
         
@@ -209,7 +218,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                  help="Maximum number of oligos to select in each pass (default: no limit)")
     add_argument(parser, "--stall-rounds", dest="stall_rounds", type=positive_int, default=3,
                  aliases=("--stall_rounds",),
-                 help="Passes without fewer uncovered regions before stopping (default: 3)")
+                 help="Passes in a row without fewer uncovered bases before stopping (default: 3)")
     
     # Output
     parser.add_argument("--output", type=Path, default=Path("selected_oligos.txt"),

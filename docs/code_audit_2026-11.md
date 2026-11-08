@@ -198,7 +198,9 @@ contrary to CLAUDE.md. This is a consistency issue, not a wrong result.
 
 Grouped so that each phase can ship on its own, most valuable first.
 
-1. **Hangs, crashes and silent failures on real data.** N-51 (shapes in
+1. **Hangs, crashes and silent failures on real data.** *Fixed (unreleased;
+   see the CHANGELOG): all items below, with regression tests in
+   `tests/test_audit2_phase1.py`.* N-51 (shapes in
    one call), N-1 (PSL header), N-14 (fill stall), N-32 (empty PAF),
    N-52 (mathtext and per-figure isolation), N-24 and N-25 (duplicate and
    empty records), N-16 (min-contribution 0), N-15 (forced baits), N-6,

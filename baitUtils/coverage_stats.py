@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
-from Bio import SeqIO
 
-from baitUtils.mapping_utils import SequenceLoader, parse_alignments, build_hit_table
+from baitUtils.cli_utils import InputError
+from baitUtils.mapping_utils import SequenceLoader, parse_alignments, build_hit_table, read_reference_fasta
 from baitUtils.sequence_features import encode
 
 
@@ -111,19 +111,19 @@ class CoverageAnalyzer:
     def _load_reference_sequences(self) -> None:
         """Load reference sequences from FASTA file."""
         try:
-            with open(self.reference_file, 'r') as handle:
-                for record in SeqIO.parse(handle, 'fasta'):
-                    sequence = str(record.seq)
-                    self.reference_sequences[record.id] = {
-                        'sequence': sequence,
-                        'length': len(sequence)
-                    }
-                    self.n_masks[record.id] = encode(sequence) == 4
+            for ref_id, sequence in read_reference_fasta(self.reference_file).items():
+                self.reference_sequences[ref_id] = {
+                    'sequence': sequence,
+                    'length': len(sequence)
+                }
+                self.n_masks[ref_id] = encode(sequence) == 4
             
             total_length = sum(ref['length'] for ref in self.reference_sequences.values())
             logging.info(f"Loaded {len(self.reference_sequences)} reference sequences "
                         f"({total_length:,} bp total)")
             
+        except InputError:
+            raise
         except Exception as e:
             logging.error(f"Error loading reference sequences: {e}")
             raise
