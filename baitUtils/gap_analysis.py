@@ -14,12 +14,16 @@ from typing import Dict, List, Any, Optional
 import numpy as np
 import pandas as pd
 from collections import Counter
-from Bio.SeqUtils import gc_fraction
 
 from baitUtils.cli_utils import InputError
 from baitUtils.coverage_stats import find_gap_intervals
 from baitUtils.mapping_utils import read_reference_fasta
-from baitUtils.sequence_features import encode, repeat_content
+from baitUtils.sequence_features import (
+    encode, repeat_content,
+    gc_content as sf_gc_content, shannon_entropy as sf_shannon_entropy,
+    max_homopolymer as sf_max_homopolymer, n_content as sf_n_content,
+    low_complexity_fraction as sf_low_complexity_fraction,
+)
 
 
 class GapAnalyzer:
@@ -121,7 +125,11 @@ class GapAnalyzer:
             if ref_id not in self.reference_sequences:
                 continue
             ref_length = len(cov_array)
-            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
+            # N cannot be covered: a run of N is not a design gap and splits gaps
+            n_mask = encode(self.reference_sequences[ref_id]) == 4
+            if n_mask.size != ref_length:
+                n_mask = None
+            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage, n_mask):
                 if gap_end - gap_start < self.min_gap_size:
                     continue
                 self.gaps.append({
@@ -165,32 +173,22 @@ class GapAnalyzer:
             self.gap_features.append(features)
     
     def _calculate_sequence_features(self, sequence: str) -> Dict[str, Any]:
-        """Calculate comprehensive sequence features for a gap region."""
-        if not sequence:
-            return {'gc_content': 0, 'complexity': 0, 'repeats': 0, 
-                   'homopolymers': 0, 'n_content': 0}
-        
-        # GC content
-        gc_content = gc_fraction(sequence) * 100
-        
-        # Sequence complexity (Shannon entropy)
-        complexity = self._calculate_shannon_entropy(sequence)
-        
-        # Repeat content (simple tandem repeats)
+        """
+        Sequence features of a gap region, over its A, C, G and T bases (the
+        shared rule of sequence_features): GC content, entropy, repeat and
+        low-complexity content are NaN for a gap of N only, which is then
+        neither GC-extreme nor low-complexity. An empty slice gives the same
+        keys as any other gap.
+        """
+        codes = encode(sequence)
+        gc_content = sf_gc_content(codes)
+        complexity = sf_shannon_entropy(codes)
         repeat_content = self._calculate_repeat_content(sequence)
-        
-        # Homopolymer runs
-        max_homopolymer = self._find_max_homopolymer(sequence)
-        
-        # N content
-        n_content = (sequence.count('N') / len(sequence)) * 100
-        
-        # Low complexity regions
-        low_complexity_fraction = self._calculate_low_complexity(sequence)
-        
-        # Dinucleotide composition
+        max_homopolymer = sf_max_homopolymer(codes)
+        n_content = sf_n_content(codes)
+        low_complexity_fraction = sf_low_complexity_fraction(codes)
         dinuc_composition = self._calculate_dinucleotide_bias(sequence)
-        
+
         return {
             'gc_content': gc_content,
             'complexity': complexity,
@@ -205,61 +203,26 @@ class GapAnalyzer:
         }
     
     def _calculate_shannon_entropy(self, sequence: str) -> float:
-        """Calculate Shannon entropy of sequence."""
-        if not sequence:
-            return 0.0
-        
-        # Count nucleotide frequencies
-        counts = Counter(sequence)
-        total = len(sequence)
-        
-        # Calculate entropy
-        entropy = 0.0
-        for count in counts.values():
-            if count > 0:
-                p = count / total
-                entropy -= p * np.log2(p)
-        
-        return entropy
-    
+        """Shannon entropy (bits) of the A/C/G/T bases; NaN without A/C/G/T."""
+        return sf_shannon_entropy(encode(sequence))
     def _calculate_repeat_content(self, sequence: str) -> float:
-        """Percentage of 6-mer positions whose 6-mer occurs more than once in the gap sequence."""
-        return repeat_content(encode(sequence), k=6)
+        """
+        Percentage of 12-mer positions whose 12-mer occurs more than once in
+        the gap sequence; NaN without A/C/G/T. With 4^12 possible 12-mers a
+        random gap of tens of kb stays near 0 %, so the value reflects repeats
+        rather than gap length (6-mers saturated: 70 % for a random 5 kb gap).
+        """
+        codes = encode(sequence)
+        if not (codes < 4).any():
+            return float("nan")
+        return repeat_content(codes, k=12)
     
     def _find_max_homopolymer(self, sequence: str) -> int:
-        """Find maximum homopolymer run length."""
-        if not sequence:
-            return 0
-        
-        max_run = 1
-        current_run = 1
-        
-        for i in range(1, len(sequence)):
-            if sequence[i] == sequence[i-1]:
-                current_run += 1
-                max_run = max(max_run, current_run)
-            else:
-                current_run = 1
-        
-        return max_run
-    
+        """Longest run of one base; runs of N are not homopolymers."""
+        return sf_max_homopolymer(encode(sequence))
     def _calculate_low_complexity(self, sequence: str, window=20) -> float:
-        """Calculate fraction of sequence in low-complexity regions."""
-        if len(sequence) < window:
-            return 0.0
-        
-        low_complexity_bases = 0
-        
-        for i in range(len(sequence) - window + 1):
-            subseq = sequence[i:i + window]
-            entropy = self._calculate_shannon_entropy(subseq)
-            
-            # Low complexity threshold (entropy < 1.5 for DNA)
-            if entropy < 1.5:
-                low_complexity_bases += 1
-        
-        return low_complexity_bases / max(1, len(sequence) - window + 1)
-    
+        """Share of 20 bp windows with A/C/G/T entropy below 1.5 bits; NaN when undefined."""
+        return sf_low_complexity_fraction(encode(sequence), window)
     def _calculate_dinucleotide_bias(self, sequence: str) -> float:
         """Calculate dinucleotide composition bias."""
         if len(sequence) < 2:
@@ -302,7 +265,9 @@ class GapAnalyzer:
         # Basic gap statistics
         gap_lengths = [gap['length'] for gap in self.gaps]
         total_gap_length = sum(gap_lengths)
-        total_ref_length = self.coverage_data.get('reference_length', 1)
+        # over the bases that can be covered (N excluded) when that is known
+        total_ref_length = (self.coverage_data.get('assessable_bases')
+                            or self.coverage_data.get('reference_length', 1))
         
         self.analysis_results = {
             'total_gaps': len(self.gaps),
@@ -317,24 +282,9 @@ class GapAnalyzer:
         }
         
         # Gap size distribution
-        size_ranges = [
-            (self.min_gap_size, 500),
-            (500, 1000),
-            (1000, 5000),
-            (5000, 10000),
-            (10000, float('inf'))
-        ]
-        
-        size_distribution = {}
-        for start, end in size_ranges:
-            if end == float('inf'):
-                range_name = f">={start}"
-                count = sum(1 for length in gap_lengths if length >= start)
-            else:
-                range_name = f"{start}-{end}"
-                count = sum(1 for length in gap_lengths if start <= length < end)
-            
-            size_distribution[range_name] = count
+        size_distribution = {label: 0 for label, _, _ in self._size_classes()}
+        for length in gap_lengths:
+            size_distribution[self._size_class(length)] += 1
         
         self.analysis_results['size_distribution'] = size_distribution
         
@@ -346,6 +296,25 @@ class GapAnalyzer:
         if self.gap_features:
             self._analyze_gap_feature_correlations()
     
+    SIZE_EDGES = (500, 1000, 5000, 10000)
+
+    def _size_classes(self):
+        """
+        Gap length classes as (label, low, high), half-open [low, high).
+        Classes start at the minimum gap size, so none lies entirely below it
+        (with --min-gap-size 1000 the first class is "1000-5000", not "1000-500").
+        """
+        edges = [e for e in self.SIZE_EDGES if e > self.min_gap_size]
+        lows = [self.min_gap_size] + edges
+        highs = edges + [float('inf')]
+        return [(f">={lo}" if hi == float('inf') else f"{lo}-{hi}", lo, hi) for lo, hi in zip(lows, highs)]
+
+    def _size_class(self, length: int) -> str:
+        for label, lo, hi in self._size_classes():
+            if lo <= length < hi:
+                return label
+        return self._size_classes()[0][0]   # shorter than the minimum: only in hand-made input
+
     def _analyze_gap_feature_correlations(self) -> None:
         """Analyze correlations between gap characteristics and sequence features."""
         if not self.gap_features:
@@ -354,11 +323,10 @@ class GapAnalyzer:
         feature_df = pd.DataFrame(self.gap_features)
         
         # Categorize gaps by size
-        feature_df['size_category'] = pd.cut(
-            feature_df['length'],
-            bins=[0, 500, 1000, 5000, float('inf')],
-            labels=['Small', 'Medium', 'Large', 'Very Large']
-        )
+        # the same classes as size_distribution, so a gap is in one class everywhere
+        labels = [label for label, _, _ in self._size_classes()]
+        feature_df['size_category'] = pd.Categorical(
+            [self._size_class(length) for length in feature_df['length']], categories=labels)
         
         # Analyze feature distributions
         feature_analysis = {}

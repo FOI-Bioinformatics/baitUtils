@@ -8,9 +8,13 @@ and work on numpy arrays, so they scale to genome-sized references.
 Sequences are encoded as uint8 arrays with A, C, G, T as 0..3, N (or any
 other symbol) as 4. Lowercase input is treated as masked and reported
 separately by the caller.
+
+Composition statistics (GC, entropy, homopolymer and repeat content) are
+computed over the A, C, G and T bases only, and are NaN where there are
+none: an all-N stretch has no GC content, rather than 0 % GC.
 """
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
@@ -39,10 +43,10 @@ def base_counts(codes: np.ndarray) -> np.ndarray:
 
 
 def gc_content(codes: np.ndarray) -> float:
-    """GC percentage of the A/C/G/T bases (N excluded from the denominator)."""
+    """GC percentage of the A/C/G/T bases (N excluded); NaN without A/C/G/T."""
     counts = base_counts(codes)
     acgt = counts[:4].sum()
-    return float((counts[1] + counts[2]) / acgt * 100.0) if acgt else 0.0
+    return float((counts[1] + counts[2]) / acgt * 100.0) if acgt else float("nan")
 
 
 def n_content(codes: np.ndarray) -> float:
@@ -51,11 +55,11 @@ def n_content(codes: np.ndarray) -> float:
 
 
 def shannon_entropy(codes: np.ndarray) -> float:
-    """Shannon entropy (bits) of the A/C/G/T composition."""
+    """Shannon entropy (bits) of the A/C/G/T composition; NaN without A/C/G/T."""
     counts = base_counts(codes)[:4].astype(float)
     total = counts.sum()
     if total == 0:
-        return 0.0
+        return float("nan")
     p = counts[counts > 0] / total
     return float(-(p * np.log2(p)).sum())
 
@@ -141,6 +145,27 @@ def linguistic_complexity(codes: np.ndarray, max_k: int = 4) -> float:
     return float(value)
 
 
+def low_complexity_fraction(codes: np.ndarray, window: int = 20, threshold: float = 1.5) -> float:
+    """
+    Share of sliding windows (step 1) whose A/C/G/T entropy is below the
+    threshold (bits), over the windows that contain A, C, G or T; NaN when
+    there are none or the sequence is shorter than the window.
+    """
+    n = codes.size - window + 1
+    if n <= 0:
+        return float("nan")
+    counts = np.stack([np.convolve(codes == code, np.ones(window, dtype=np.int64), mode="valid")
+                       for code in range(4)], axis=1).astype(float)
+    acgt = counts.sum(axis=1)
+    defined = acgt > 0
+    if not defined.any():
+        return float("nan")
+    p = counts[defined] / acgt[defined, None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        entropy = -np.where(p > 0, p * np.log2(np.where(p > 0, p, 1)), 0.0).sum(axis=1)
+    return float(np.mean(entropy < threshold))
+
+
 def _window_sums(indicator: np.ndarray, window: int, step: int) -> np.ndarray:
     """Sum of an indicator array over windows [start, start + window) for each start."""
     cumulative = np.concatenate(([0], np.cumsum(indicator, dtype=np.int64)))
@@ -166,8 +191,9 @@ def window_features(codes: np.ndarray, window: int, step: int,
     """
     Per-window features as arrays aligned with window_starts(len, window, step):
     start, end, gc_content (%), n_content (%), entropy (bits),
-    homopolymer_content (% bases in runs >= homopolymer_min_run),
+    homopolymer_content (% of A/C/G/T bases in runs >= homopolymer_min_run),
     repeat_density (% k-mer positions that are duplicated in the sequence).
+    Every feature but n_content is NaN for a window without A, C, G or T.
     """
     starts = window_starts(codes.size, window, step)
     ends = np.minimum(starts + window, codes.size)
@@ -178,12 +204,15 @@ def window_features(codes: np.ndarray, window: int, step: int,
 
     counts = np.stack([_window_sums(codes == code, window, step) for code in range(5)], axis=1).astype(float)
     acgt = counts[:, :4].sum(axis=1)
+    defined = acgt > 0
     with np.errstate(divide="ignore", invalid="ignore"):
-        gc = np.where(acgt > 0, (counts[:, 1] + counts[:, 2]) / acgt * 100.0, 0.0)
+        gc = np.where(defined, (counts[:, 1] + counts[:, 2]) / acgt * 100.0, np.nan)
         p = np.where(acgt[:, None] > 0, counts[:, :4] / np.maximum(acgt[:, None], 1), 0.0)
         entropy = -np.where(p > 0, p * np.log2(np.where(p > 0, p, 1)), 0.0).sum(axis=1)
+        entropy = np.where(defined, entropy, np.nan)
+        homopolymer = np.where(defined, _window_sums(homopolymer_mask(codes, homopolymer_min_run), window, step)
+                               / np.maximum(acgt, 1) * 100.0, np.nan)
     n_frac = counts[:, 4] / lengths * 100.0
-    homopolymer = _window_sums(homopolymer_mask(codes, homopolymer_min_run), window, step) / lengths * 100.0
 
     dup = duplicated_kmer_mask(codes, repeat_k)
     if dup.size:
@@ -195,21 +224,34 @@ def window_features(codes: np.ndarray, window: int, step: int,
 
     return {
         "start": starts, "end": ends, "gc_content": gc, "n_content": n_frac, "entropy": entropy,
-        "homopolymer_content": homopolymer, "repeat_density": np.minimum(repeat, 100.0),
+        "homopolymer_content": homopolymer,
+        "repeat_density": np.where(defined, np.minimum(repeat, 100.0), np.nan),
     }
 
 
-def window_coverage(coverage: np.ndarray, window: int, step: int, min_coverage: float = 1.0) -> Dict[str, np.ndarray]:
-    """Mean depth and breadth (%) per window of a per-base coverage array."""
+def window_coverage(coverage: np.ndarray, window: int, step: int, min_coverage: float = 1.0,
+                    n_mask: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
+    """
+    Mean depth and breadth (%) per window of a per-base coverage array.
+
+    With n_mask (True at N positions), both are computed over the bases that
+    are not N, since N cannot be covered; a window of N only gives NaN.
+    """
     coverage = np.asarray(coverage)
     starts = window_starts(coverage.size, window, step)
-    ends = np.minimum(starts + window, coverage.size)
-    lengths = (ends - starts).astype(float)
     if starts.size == 0:
         return {"mean_depth": np.array([]), "breadth": np.array([])}
-    depth_sum = _window_sums(coverage.astype(np.int64), window, step)
-    covered = _window_sums(coverage >= min_coverage, window, step)
-    return {"mean_depth": depth_sum / lengths, "breadth": covered / lengths * 100.0}
+    if n_mask is None:
+        assessable = np.ones(coverage.size, dtype=bool)
+    else:
+        assessable = ~np.asarray(n_mask, dtype=bool)
+    lengths = _window_sums(assessable, window, step).astype(float)
+    depth_sum = _window_sums(np.where(assessable, coverage, 0).astype(np.int64), window, step)
+    covered = _window_sums((coverage >= min_coverage) & assessable, window, step)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean_depth = np.where(lengths > 0, depth_sum / lengths, np.nan)
+        breadth = np.where(lengths > 0, covered / lengths * 100.0, np.nan)
+    return {"mean_depth": mean_depth, "breadth": breadth}
 
 
 def sequence_summary(sequence: str, repeat_k: int = 12) -> Dict[str, float]:
@@ -222,12 +264,12 @@ def sequence_summary(sequence: str, repeat_k: int = 12) -> Dict[str, float]:
     return {
         "length": length,
         "gc_content": gc_content(codes),
-        "at_content": float((counts[0] + counts[3]) / acgt * 100.0) if acgt else 0.0,
+        "at_content": float((counts[0] + counts[3]) / acgt * 100.0) if acgt else float("nan"),
         "n_content": n_content(codes),
         "masked_content": float(masked.mean() * 100.0) if length else 0.0,
         "shannon_entropy": shannon_entropy(codes),
-        "linguistic_complexity": linguistic_complexity(codes),
+        "linguistic_complexity": linguistic_complexity(codes) if acgt else float("nan"),
         "max_homopolymer": max_homopolymer(codes),
-        "homopolymer_content": float(homopolymer_mask(codes).mean() * 100.0) if length else 0.0,
-        "repeat_content": repeat_content(codes, repeat_k),
+        "homopolymer_content": float(homopolymer_mask(codes).sum() / acgt * 100.0) if acgt else float("nan"),
+        "repeat_content": repeat_content(codes, repeat_k) if acgt else float("nan"),
     }

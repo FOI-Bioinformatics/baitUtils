@@ -25,7 +25,7 @@ class TestSequenceFeatures:
     def test_entropy(self):
         assert sf.shannon_entropy(sf.encode("ACGT" * 10)) == pytest.approx(2.0)
         assert sf.shannon_entropy(sf.encode("AAAA")) == 0.0
-        assert sf.shannon_entropy(sf.encode("NNNN")) == 0.0
+        assert np.isnan(sf.shannon_entropy(sf.encode("NNNN")))   # undefined without A/C/G/T
 
     def test_homopolymers(self):
         codes = sf.encode("ACGTTTTTTGCAAAAANNNNNNNN")
@@ -125,7 +125,9 @@ class TestReferenceAnalyzer:
 
     def test_challenging_reference_and_windows(self, tmp_path):
         ref = tmp_path / "hard.fa"
-        ref.write_text(">hard\n" + "A" * 400 + "ACGT" * 100 + "N" * 200 + "\n")
+        # the last window has 50 real bases (uncovered) and 150 N; a window of
+        # N only would have no assessable bases and is not a coverage problem
+        ref.write_text(">hard\n" + "A" * 400 + "ACGT" * 100 + "ACGT" * 12 + "AC" + "N" * 150 + "\n")
         cov = {"hard": np.concatenate([np.zeros(400), np.ones(400), np.zeros(200)]).astype(np.int32)}
         results = ReferenceAnalyzer(ref, {}, window_size=200, coverage_arrays=cov).analyze()
         region = results["challenging_regions"]["hard"]

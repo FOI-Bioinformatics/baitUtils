@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from baitUtils._version import __version__
-from baitUtils.cli_utils import add_logging_arguments, logging_kwargs, positive_int, non_negative_int
+from baitUtils.cli_utils import add_logging_arguments, logging_kwargs, positive_float, positive_int, non_negative_int
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.comparative_analyzer import ComparativeAnalyzer
 from baitUtils.differential_analysis import DifferentialAnalyzer
@@ -98,9 +98,9 @@ def add_arguments(parser):
     # Coverage analysis parameters
     parser.add_argument(
         '--min-coverage',
-        type=float,
+        type=positive_float,
         default=1.0,
-        help='Minimum coverage depth threshold (default: 1.0)'
+        help='Minimum depth for a base to count as covered; above 0 (default: 1.0)'
     )
     parser.add_argument(
         '--target-coverage',

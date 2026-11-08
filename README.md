@@ -88,11 +88,13 @@ Writes `sequence_statistics.tsv` (one row per bait), `summary.txt` and, with
 baits stay in the table with a `kept` column.
 
 Columns: `length`, `gc_content`, `melting_temperature` (nearest-neighbour Tm;
-salt and strand concentrations from `--na`, `--dnac1`, `--dnac2`),
-`hairpin_dg` and `self_dimer_dg` (kcal/mol at `--hyb-temp`, default 65 C,
-`NA` without ViennaRNA), `entropy`, `complexity_2mer`, `complexity_3mer`,
+salt and strand concentrations from `--na`, `--dnac1`, `--dnac2`; `NA` for a
+bait with N or another ambiguity code), `hairpin_dg` and `self_dimer_dg`
+(kcal/mol at `--hyb-temp`, default 65 C, `NA` without ViennaRNA), `entropy`
+(over A, C, G and T, at most 2 bits), `complexity_2mer`, `complexity_3mer`,
 `self_alignment_score`, `dinucleotide_bias`, `n_count`, `masked_count`,
-`masked_percentage`, `homopolymer_runs`, `max_homopolymer_length`.
+`masked_percentage`, `homopolymer_runs`, `max_homopolymer_length` (runs of N
+are not homopolymers).
 
 Filters: `--length` with `--complete`, `--no-ns`, `--min-gc/--max-gc`,
 `--min-tm/--max-tm`, `--max-mask`, `--min-hairpin-dg`, `--min-dimer-dg`. Free
@@ -218,10 +220,11 @@ evaluation/
   coverage_statistics.txt          breadth, depth, mapping efficiency
   hits.tsv                         per-bait hit table as written by map
   data/coverage.bedgraph           run-length depth; data/gap_regions.bed
-                                   the runs below --min-coverage
+                                   the runs of non-N bases below --min-coverage
                                    (--per-position-coverage adds a CSV with
                                    one row per base)
-  gap_analysis.txt                 gap summary and largest gaps
+  gap_analysis.txt                 gap summary and largest gaps (1-based
+                                   coordinates; the JSON and BED are 0-based)
   recommendations.txt
   benchmark_analysis.txt           observed metrics against design targets
   coverage_evaluation_report.html  report (plotly.js from CDN unless --offline-plots)
@@ -261,21 +264,30 @@ and `plus_hits` and `minus_hits` per reference). Breadth is reported both
 over the whole reference and over the bases that are not N
 (`coverage_breadth_non_n`), since N runs cannot be covered.
 
+N bases are treated as unassessable throughout: a gap is an uncovered
+stretch of real sequence (a run of N is not a gap and splits one), gap
+percentage is over non-N bases, and GC, entropy, homopolymer and repeat
+content are computed over A, C, G and T and are undefined (`null` in the
+JSON, a dash in the report) where there are none. Gap repeat content is the
+share of duplicated 12-mers within the gap.
+
 Reference analysis computes sequence features per reference and per window
 (`--reference-analysis-window`, default 1000 bp): GC, N content, entropy,
 homopolymer content and repetitive content (fraction of duplicated
-12-mers). Each window also carries its observed breadth and mean depth, and
-the report gives Spearman correlations between features and coverage across
-windows with p-values, breadth by GC decile, and the windows with low
-breadth and an extreme feature. All of this is linear in reference length.
+12-mers). Each window also carries its observed breadth and mean depth over
+its non-N bases, and the report gives Spearman correlations between features
+and coverage across windows with p-values, breadth by GC decile, and the
+windows with low breadth and an extreme feature. Windows of N only take part
+in none of these. All of this is linear in reference length.
 
 The quality score is a weighted sum of five component scores in 0 to 1:
-breadth (30 %), depth adequacy and uniformity (20 %, uniformity as 1 - Gini
+breadth over non-N bases (30 %), depth adequacy and uniformity (20 %, uniformity as 1 - Gini
 against a target of 0.8), gaps (20 %), mapping efficiency (15 %) and
 reference difficulty (15 %, the breadth relative to the breadth expected for
 the reference's difficulty, so a hard reference gets credit for the same
-breadth). Categories are Excellent (0.85 or more), Good (0.70), Fair (0.50)
-and Poor. Weights and targets are documented in `QualityScorer` and can be
+breadth). With no base covered, uniformity is undefined and the benchmark
+reports it as not applicable. Categories are Excellent (0.85 or more), Good
+(0.70), Fair (0.50) and Poor. Weights and targets are documented in `QualityScorer` and can be
 overridden in code; weight overrides are normalised to sum to 1.
 
 ### compare

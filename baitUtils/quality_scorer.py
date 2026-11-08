@@ -8,6 +8,7 @@ Provides standardized metrics and benchmarking against theoretical optimal cover
 """
 
 import logging
+import math
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -189,9 +190,19 @@ class QualityScorer:
             recommendations=recommendations
         )
     
+    def _breadth(self) -> float:
+        """
+        Breadth over the bases that can be covered (N excluded) when known:
+        an assembly with scaffold gaps is not penalised for N it cannot capture.
+        """
+        value = self.coverage_stats.get('coverage_breadth_non_n')
+        if value is None:
+            value = self.coverage_stats.get('coverage_breadth', 0)
+        return value
+
     def _score_coverage_breadth(self) -> float:
         """Score coverage breadth component."""
-        breadth = self.coverage_stats.get('coverage_breadth', 0)
+        breadth = self._breadth()
         target_breadth = self.benchmarks['coverage_breadth']
         
         # Score based on how close to target
@@ -224,9 +235,12 @@ class QualityScorer:
         else:
             depth_score = max(0.0, mean_depth / (target_depth * 0.5) * 0.5)
         
-        # Uniformity score: 1 - Gini relative to the target, CV as fallback
+        # Uniformity score: 1 - Gini relative to the target, CV as fallback;
+        # without either (nothing covered) there is no uniformity to credit
         if gini is not None and gini == gini and target_uniformity > 0:
             uniformity_score = max(0.0, min(1.0, (1.0 - float(gini)) / target_uniformity))
+        elif depth_cv is None or depth_cv != depth_cv:
+            uniformity_score = 0.0
         elif depth_cv == float('inf') or depth_cv > 2.0:
             uniformity_score = 0.0
         elif depth_cv <= 0.5:  # Very uniform
@@ -320,7 +334,7 @@ class QualityScorer:
         expected = self.expected_breadth()
         if expected <= 0:
             return 1.0
-        actual = self.coverage_stats.get('coverage_breadth', 0)
+        actual = self._breadth()
         return max(0.0, min(1.0, actual / expected))
     
     def _determine_category(self, overall_score: float) -> QualityCategory:
@@ -340,7 +354,7 @@ class QualityScorer:
         
         # Coverage breadth recommendations
         if component_scores['coverage_breadth'] < 0.7:
-            breadth = self.coverage_stats.get('coverage_breadth', 0)
+            breadth = self._breadth()
             recommendations.append(
                 f"Coverage breadth is {breadth:.1f}%. Consider adding more oligos or using "
                 "'baitUtils fill' to target uncovered regions."
@@ -357,7 +371,7 @@ class QualityScorer:
                     "or optimizing oligo placement for better depth."
                 )
             
-            if cv > 1.0:
+            if cv is not None and math.isfinite(cv) and cv > 1.0:
                 recommendations.append(
                     f"Coverage depth is highly variable (CV={cv:.2f}). Consider redistributing "
                     "oligos for more uniform coverage."
@@ -418,7 +432,7 @@ class QualityScorer:
         benchmarks = {}
         
         # Coverage breadth benchmark
-        actual_breadth = self.coverage_stats.get('coverage_breadth', 0)
+        actual_breadth = self._breadth()
         benchmarks['coverage_breadth_ratio'] = actual_breadth / self.benchmarks['coverage_breadth']
         
         # Depth benchmark

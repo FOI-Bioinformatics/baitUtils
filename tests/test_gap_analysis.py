@@ -100,9 +100,9 @@ class TestSequenceFeatureAnalysis(unittest.TestCase):
         entropy_medium = self.analyzer._calculate_shannon_entropy(medium_entropy_seq)
         self.assertAlmostEqual(entropy_medium, 1.0, places=1)  # log2(2) = 1
         
-        # Empty sequence
-        entropy_empty = self.analyzer._calculate_shannon_entropy("")
-        self.assertEqual(entropy_empty, 0.0)
+        # Empty sequence or N only: undefined (NaN), not zero entropy
+        self.assertTrue(np.isnan(self.analyzer._calculate_shannon_entropy("")))
+        self.assertTrue(np.isnan(self.analyzer._calculate_shannon_entropy("NNNN")))
     
     def test_homopolymer_detection(self):
         """Test homopolymer run detection."""
@@ -161,10 +161,18 @@ class TestSequenceFeatureAnalysis(unittest.TestCase):
         repeat_content = self.analyzer._calculate_repeat_content(no_repeats)
         self.assertEqual(repeat_content, 0.0)
         
-        # Simple tandem repeat
-        tandem_repeat = "ATGATGATGATG"
+        # Tandem repeat of gap length (gaps are at least --min-gap-size long)
+        tandem_repeat = "ATG" * 40
         repeat_content = self.analyzer._calculate_repeat_content(tandem_repeat)
-        self.assertGreater(repeat_content, 0.0)
+        self.assertGreater(repeat_content, 50.0)
+
+        # Random sequence: near 0 % at any gap length (N-31; 6-mers gave 70 % at 5 kb)
+        rng = np.random.default_rng(0)
+        random_gap = "".join(rng.choice(list("ACGT"), 5000))
+        self.assertLess(self.analyzer._calculate_repeat_content(random_gap), 1.0)
+
+        # N only: undefined
+        self.assertTrue(np.isnan(self.analyzer._calculate_repeat_content("N" * 500)))
         
         # Sequence too short for analysis
         too_short = "ATGC"
@@ -183,10 +191,9 @@ class TestSequenceFeatureAnalysis(unittest.TestCase):
         low_complex_fraction = self.analyzer._calculate_low_complexity(low_complexity)
         self.assertGreater(low_complex_fraction, 0.5)
         
-        # Sequence too short for analysis
-        too_short = "ATGC"
-        low_complex_fraction = self.analyzer._calculate_low_complexity(too_short)
-        self.assertEqual(low_complex_fraction, 0.0)
+        # Shorter than the window, or N only: undefined
+        self.assertTrue(np.isnan(self.analyzer._calculate_low_complexity("ATGC")))
+        self.assertTrue(np.isnan(self.analyzer._calculate_low_complexity("N" * 100)))
     
     def test_dinucleotide_bias(self):
         """Test dinucleotide composition bias calculation."""
@@ -538,15 +545,13 @@ class TestEdgeCasesGapAnalysis(unittest.TestCase):
         
         # Test empty sequence feature calculation
         features = analyzer._calculate_sequence_features("")
-        
-        expected_defaults = {
-            'gc_content': 0, 'complexity': 0, 'repeats': 0,
-            'homopolymers': 0, 'n_content': 0
-        }
-        
-        for key, expected_value in expected_defaults.items():
-            if key in features:
-                self.assertEqual(features[key], expected_value)
+
+        # N-33: an empty slice has the same keys as any gap (a missing
+        # 'extreme_composition' crashed evaluate); composition is undefined
+        self.assertEqual(set(features), set(analyzer._calculate_sequence_features("ACGT" * 30)))
+        self.assertTrue(np.isnan(features['gc_content']))
+        self.assertFalse(features['extreme_composition'])
+        self.assertEqual(features['max_homopolymer'], 0)
 
 
 if __name__ == '__main__':

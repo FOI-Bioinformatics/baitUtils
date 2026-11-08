@@ -20,7 +20,7 @@ import tempfile
 import shutil
 
 from baitUtils._version import __version__
-from baitUtils.cli_utils import add_logging_arguments, logging_kwargs, positive_int, non_negative_int
+from baitUtils.cli_utils import add_logging_arguments, logging_kwargs, positive_float, positive_int, non_negative_int
 from baitUtils.logging_utils import ensure_logging
 from baitUtils.coverage_stats import CoverageAnalyzer
 from baitUtils.coverage_viz import CoverageVisualizer
@@ -101,9 +101,9 @@ def add_arguments(parser):
     # Coverage analysis parameters
     parser.add_argument(
         '--min-coverage',
-        type=float,
+        type=positive_float,
         default=1.0,
-        help='Minimum coverage depth threshold (default: 1.0)'
+        help='Minimum depth for a base to count as covered; above 0 (default: 1.0)'
     )
     parser.add_argument(
         '--target-coverage',
@@ -476,7 +476,7 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
         
         f.write(f"Total gaps: {gap_analysis.get('total_gaps', 0):,}\n")
         f.write(f"Total gap length: {gap_analysis.get('total_gap_length', 0):,} bp\n")
-        f.write(f"Gap percentage: {gap_analysis.get('gap_percentage', 0):.1f}%\n\n")
+        f.write(f"Gap percentage (of bases that are not N): {gap_analysis.get('gap_percentage', 0):.1f}%\n\n")
         
         f.write(f"Mean gap size: {gap_analysis.get('mean_gap_size', 0):.1f} bp\n")
         f.write(f"Median gap size: {gap_analysis.get('median_gap_size', 0):.1f} bp\n")
@@ -489,9 +489,11 @@ def generate_reports(coverage_stats: Dict, gap_analysis: Dict, output_dir: Path,
         f.write("\n")
         
         f.write("=== LARGEST GAPS ===\n")
+        f.write("(1-based, inclusive coordinates as used by samtools and IGV; "
+                "evaluation.json and data/gap_regions.bed are 0-based, half-open)\n")
         largest_gaps = gap_analysis.get('largest_gaps', [])
         for i, gap in enumerate(largest_gaps[:10], 1):
-            f.write(f"{i}. {gap['chromosome']}:{gap['start']}-{gap['end']} "
+            f.write(f"{i}. {gap['chromosome']}:{gap['start'] + 1}-{gap['end']} "
                    f"({gap['length']:,} bp)\n")
     
     # Recommendations report

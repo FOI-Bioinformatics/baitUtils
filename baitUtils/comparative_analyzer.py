@@ -11,6 +11,7 @@ allowing users to evaluate multiple oligo set designs and identify the best perf
 """
 
 import logging
+import math
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
@@ -291,7 +292,10 @@ class ComparativeAnalyzer:
         elif metric == 'mapping_efficiency':
             return max(self.oligo_sets, key=lambda x: x.coverage_stats.get('mapping_efficiency', 0))
         elif metric == 'depth_uniformity':
-            return min(self.oligo_sets, key=lambda x: x.coverage_stats.get('coverage_gini', 1.0))
+            def gini(result):
+                value = result.coverage_stats.get('coverage_gini')
+                return value if value is not None and math.isfinite(value) else float('inf')
+            return min(self.oligo_sets, key=gini)
         else:
             raise ValueError(f"Unknown metric: {metric}")
     

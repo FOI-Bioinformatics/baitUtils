@@ -206,7 +206,8 @@ Grouped so that each phase can ship on its own, most valuable first.
    empty records), N-16 (min-contribution 0), N-15 (forced baits), N-6,
    N-7 and N-8 (`stats` filters and `plot` without ViennaRNA), N-38 and
    N-39 (config validation). Each gets a regression test that fails today.
-2. **N bases and evaluate semantics.** One shared rule, "statistics over
+2. **N bases and evaluate semantics.** *Fixed (unreleased): all items
+   below, with regression tests in `tests/test_audit2_phase2.py`.* One shared rule, "statistics over
    A, C, G and T; undefined without them", applied in
    `sequence_features`, `gap_analysis`, `reference_analyzer` and the
    scorer: N-28, N-29, N-30, N-12, N-11, F-52. Then N-31 (repeat measure),

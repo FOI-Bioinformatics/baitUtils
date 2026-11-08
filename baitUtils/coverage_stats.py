@@ -22,14 +22,19 @@ from baitUtils.sequence_features import encode
 
 
 
-def find_gap_intervals(coverage_array: np.ndarray, min_coverage: float = 1.0) -> List[Tuple[int, int]]:
+def find_gap_intervals(coverage_array: np.ndarray, min_coverage: float = 1.0,
+                       n_mask: Optional[np.ndarray] = None) -> List[Tuple[int, int]]:
     """
     Return half-open (start, end) intervals where depth is below min_coverage.
 
     Coordinates are 0-based and follow BED conventions, so an interval
-    (start, end) covers positions start .. end - 1.
+    (start, end) covers positions start .. end - 1. With n_mask (True at N
+    positions) N bases are not part of any gap: a gap is an uncovered stretch
+    of real sequence, and a run of N splits it.
     """
     below = np.asarray(coverage_array) < min_coverage
+    if n_mask is not None:
+        below = below & ~np.asarray(n_mask, dtype=bool)
     if below.size == 0 or not below.any():
         return []
     padded = np.concatenate(([False], below, [False])).astype(np.int8)
@@ -332,10 +337,12 @@ class CoverageAnalyzer:
                 'uniformity_score': max(0.0, 1.0 - cv)  # Simple uniformity metric
             })
         else:
+            # Nothing covered: uniformity is undefined (NaN, written as null in
+            # JSON), not maximally uneven; the benchmark reports it as not applicable
             self.stats.update({
-                'coverage_cv': float('inf'),
-                'coverage_gini': 1.0,
-                'uniformity_score': 0.0
+                'coverage_cv': float('nan'),
+                'coverage_gini': float('nan'),
+                'uniformity_score': float('nan')
             })
     
     def _calculate_gini_coefficient(self, values: np.ndarray) -> float:
@@ -381,16 +388,16 @@ class CoverageAnalyzer:
                 'max_depth': int(np.max(cov_array)),
                 'covered_bases': int(covered_bases),
                 'coverage_breadth': (covered_bases / ref_length * 100.0) if ref_length > 0 else 0.0,
-                'gaps': self._count_gaps_in_sequence(cov_array)
+                'gaps': self._count_gaps_in_sequence(cov_array, n_mask)
             }
             
             per_ref_stats[ref_id] = stats
         
         self.stats['per_reference'] = per_ref_stats
     
-    def _count_gaps_in_sequence(self, coverage_array: np.ndarray) -> int:
+    def _count_gaps_in_sequence(self, coverage_array: np.ndarray, n_mask: Optional[np.ndarray] = None) -> int:
         """Count number of coverage gaps in a sequence."""
-        return len(find_gap_intervals(coverage_array, self.min_coverage))
+        return len(find_gap_intervals(coverage_array, self.min_coverage, n_mask))
     
     def export_coverage_data(self, output_dir: Path, per_position: bool = True):
         """
@@ -432,7 +439,7 @@ class CoverageAnalyzer:
         
         gap_regions = []
         for ref_id, cov_array in self.coverage_arrays.items():
-            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage):
+            for gap_start, gap_end in find_gap_intervals(cov_array, self.min_coverage, self.n_masks.get(ref_id)):
                 gap_regions.append({'chromosome': ref_id, 'start': gap_start, 'end': gap_end,
                                     'length': gap_end - gap_start})
         gap_file = data_dir / "gap_regions.bed"
