@@ -280,8 +280,9 @@ class ComparativeReportGenerator:
             bar = f'<span class="inline-bar"><span style="width:{max(0.0, min(1.0, score / top)) * 100:.0f}%"></span></span>'
             rows.append([str(i), self._set_label(name), f"{bar}{score:.2f}",
                          f"{oligo_set.quality_score.overall_score:.2f}", design.status_badge(oligo_set.quality_score.category.value)])
-        table = self._table("Composite score in 0-1: quality score 40 %, coverage breadth 25 %, mapping efficiency 20 %, "
-                            "gap term 15 %.", ["#", "Set", "Composite score", "Quality score", "Grade"], rows, numeric={0, 3})
+        table = self._table("Composite score in 0-1: quality score 40 %, coverage breadth over non-N bases 25 %, "
+                            "mapping efficiency 20 %, share of the reference not in gaps 15 %.",
+                            ["#", "Set", "Composite score", "Quality score", "Grade"], rows, numeric={0, 3})
         return self._section("ranking", "Ranking", table)
 
     def _generate_coverage_profiles(self) -> str:
@@ -324,9 +325,11 @@ class ComparativeReportGenerator:
         if len(sets) == 2:
             dist = da.compare_coverage_distributions(sets[0], sets[1])
             rows = [self._test_row(label, test) for label, test in (
-                ("Depth distribution", dist.ks_test), ("Depth median", dist.mann_whitney_test),
+                ("Depth distribution", dist.ks_test), ("Depth, paired by window", dist.wilcoxon_test),
                 ("Depth variability", dist.levene_test))]
-            parts.append(self._table(f"Mean depth per {dist.window_size:,} bp window, {_e(sets[0].name)} against {_e(sets[1].name)}.",
+            parts.append(self._table(f"Mean depth per {dist.window_size:,} bp window, {_e(sets[0].name)} against "
+                                     f"{_e(sets[1].name)}. The depth test pairs each window with the same window "
+                                     "of the other set; KS and Levene treat windows as independent.",
                                      self._test_head(), rows, numeric={2, 3, 4, 5, 6}))
             summary_rows = [[self._set_label(name), f"{s['mean']:.2f}", f"{s['median']:.2f}", f"{s['std']:.2f}",
                              f"{s['q25']:.2f}", f"{s['q75']:.2f}", f"{s['windows']:,}"] for name, s in dist.summary_stats.items()]
@@ -390,13 +393,23 @@ class ComparativeReportGenerator:
         best = self.analyzer.identify_best_performer('quality_score')
         ranking = self.analyzer.generate_ranking()
         sets = self.analyzer.oligo_sets
-        items = [f"<strong>{_e(best.name)}</strong> has the highest quality score ({best.quality_score.overall_score:.2f}, "
-                 f"{_e(best.quality_score.category.value)}): breadth {best.coverage_stats.get('coverage_breadth', 0):.1f}%, "
-                 f"{best.gap_analysis.get('total_gaps', 0):,} gaps, mapping efficiency {best.coverage_stats.get('mapping_efficiency', 0):.1f}%."]
+        by_name = {s.name: s for s in sets}
+        # The text follows the ranking, so the composite winner is always named
+        # and no set is named twice; the best quality score gets its own line
+        # only when another set has it
+        first = by_name[ranking[0][0]]
+        items = [f"<strong>{_e(first.name)}</strong> ranks first by composite score ({ranking[0][1]:.2f}; quality "
+                 f"{first.quality_score.overall_score:.2f}, {_e(first.quality_score.category.value)}): breadth "
+                 f"{first.coverage_stats.get('coverage_breadth', 0):.1f}%, {first.gap_analysis.get('total_gaps', 0):,} gaps, "
+                 f"mapping efficiency {first.coverage_stats.get('mapping_efficiency', 0):.1f}%."]
         if len(ranking) > 1:
-            second = next(s for s in sets if s.name == ranking[1][0])
-            items.append(f"<strong>{_e(second.name)}</strong> ranks second by composite score (quality "
+            second = by_name[ranking[1][0]]
+            items.append(f"<strong>{_e(second.name)}</strong> ranks second ({ranking[1][1]:.2f}; quality "
                          f"{second.quality_score.overall_score:.2f}, {_e(second.quality_score.category.value)}).")
+        if best.name != first.name:
+            items.append(f"<strong>{_e(best.name)}</strong> has the highest quality score "
+                         f"({best.quality_score.overall_score:.2f}); the composite score also weighs breadth, mapping "
+                         "efficiency and the share of the reference in gaps.")
         breadths = [s.coverage_stats.get('coverage_breadth', 0) for s in sets]
         if max(breadths) - min(breadths) > 20:
             items.append("Breadth differs by more than 20 percentage points between sets; the sets with low breadth lack "
@@ -466,7 +479,8 @@ class ComparativeReportGenerator:
 <li><strong>Quality score:</strong> weighted sum of five component scores in 0-1 (below)</li>
 <li><strong>Statistical tests:</strong> non-parametric tests on observed window depths, per-reference metrics, bait identities and gap lengths</li>
 <li><strong>Benchmarks:</strong> observed metrics against the design targets of QualityScorer.DEFAULT_BENCHMARKS</li>
-<li><strong>Ranking:</strong> composite score in 0-1: quality score 40 %, coverage breadth 25 %, mapping efficiency 20 %, gap term 15 %</li>
+<li><strong>Ranking:</strong> composite score in 0-1: quality score 40 %, coverage breadth (non-N bases) 25 %, mapping
+efficiency 20 %, and 15 % for the share of the reference not in gaps</li>
 </ol>
 <h4>Quality score</h4>
 <ul>{weight_items}</ul>
@@ -474,12 +488,14 @@ class ComparativeReportGenerator:
 Fair &gt;= {thresholds['fair']}, otherwise Poor.</p>
 <h4>Statistical tests</h4>
 <ul>
-<li><strong>Kolmogorov-Smirnov, Mann-Whitney U and Levene</strong> on mean depth per window (two sets)</li>
+<li><strong>Wilcoxon signed-rank</strong> on mean depth per window, paired by window (both sets cover the same
+windows); <strong>Kolmogorov-Smirnov</strong> and <strong>Levene</strong> compare the shape and spread of the window
+depths and treat windows as independent (two sets)</li>
 <li><strong>Wilcoxon signed-rank (two sets) or Friedman (more)</strong> on per-reference breadth, mean depth and gap count,
 each reference being one paired observation</li>
 <li><strong>Mann-Whitney U</strong> on best-hit identity per bait and on gap lengths (two sets)</li>
-<li><strong>Effect sizes:</strong> rank-biserial correlation for Mann-Whitney, paired standardised mean difference for
-Wilcoxon, Kendall's W for Friedman</li>
+<li><strong>Effect sizes:</strong> rank-biserial correlation for Mann-Whitney, matched-pairs rank-biserial correlation
+for Wilcoxon (both from -1 to 1, positive when the first set is larger), Kendall's W for Friedman</li>
 </ul>
 <p>Significance labels: {_e(legend)}.</p>
 """

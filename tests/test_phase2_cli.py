@@ -227,4 +227,4 @@ class TestEvaluateSwitches:
         assert data["parameters"]["reference_analysis_window"] == 500
         # The 300 bp hole is below the 400 bp floor, so no gap is reported
         assert all(s["gap_analysis"]["total_gaps"] == 0 for s in data["sets"])
-        assert data["reference_analysis"]["coverage_correlations"]["window_size"] == 500
+        assert all(s["reference_coverage"]["coverage_correlations"]["window_size"] == 500 for s in data["sets"])

@@ -161,8 +161,9 @@ class TestCompareTwoDifferentSets:
 
     def test_gap_overlap_reports_the_subset_only_gap(self, comparison):
         text = (comparison / "gap_overlap_analysis.txt").read_text()
-        # the chrA hole is shared by every set; only the subset's chrB tail is unique
-        assert "Total unique gap regions: 3" in text
+        # the chrA hole is shared by every set (with a wider edge in the subset),
+        # so with the chrB tail there are two distinct regions (N-48)
+        assert "Distinct gap regions (overlapping gaps merged): 2" in text
         assert "Subset: 1 unique gaps" in text and "chrB:1680-2000" in text
         assert "Full: 0 unique gaps" in text
 

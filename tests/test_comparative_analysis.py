@@ -278,15 +278,18 @@ class TestDifferentialAnalyzer(unittest.TestCase):
         comparison = self.analyzer.compare_coverage_distributions(self.set1, self.set2)
         self.assertIsInstance(comparison, CoverageDistributionComparison)
         self.assertEqual(comparison.window_size, 100)
-        for test in (comparison.ks_test, comparison.mann_whitney_test):
+        for test in (comparison.ks_test, comparison.wilcoxon_test):
             self.assertTrue(test.applicable)
             self.assertTrue(0.0 <= test.p_value <= 1.0)
             self.assertIsNotNone(test.p_adjusted)
             self.assertGreaterEqual(test.p_adjusted, test.p_value)
             self.assertLess(test.p_adjusted, 0.001)
-            self.assertEqual(test.n, 120)
-        # Set1 has lower depth: rank-biserial correlation is negative
-        self.assertLess(comparison.mann_whitney_test.effect_size, 0)
+        # KS treats the 2 x 60 windows as independent; the paired test uses the
+        # 60 window pairs (all differ here)
+        self.assertEqual(comparison.ks_test.n, 120)
+        self.assertEqual(comparison.wilcoxon_test.n, 60)
+        # Set1 has lower depth: the matched-pairs rank-biserial correlation is negative
+        self.assertLess(comparison.wilcoxon_test.effect_size, 0)
         self.assertEqual(comparison.summary_stats['Set1']['windows'], 60)
         self.assertLess(comparison.summary_stats['Set1']['mean'], comparison.summary_stats['Set2']['mean'])
     

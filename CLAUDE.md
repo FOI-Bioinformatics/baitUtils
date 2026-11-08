@@ -241,12 +241,12 @@ baitUtils compare -r reference.fasta -o results/ \
 
 ### Comparative Framework
 - Each set is evaluated as in `evaluate` (same options)
-- Statistical tests on observed data: window depths (KS, Mann-Whitney, Levene),
+- Statistical tests on observed data: window depths (Wilcoxon paired by window, KS, Levene),
   per-reference metrics (Wilcoxon or Friedman), bait identity and gap sizes,
   adjusted with `--multiple-comparison-correction`; tests without valid input
   are reported as not applicable
 - Ranking by a composite score in 0-1 (quality 40 %, breadth 25 %,
-  mapping efficiency 20 %, gap term 15 %)
+  mapping efficiency 20 %, share of the reference not in gaps 15 %)
 - HTML report plus `comparison.json`, `comparison_matrix.csv`, `pairwise_comparisons.csv`
 
 ## Reports and figures

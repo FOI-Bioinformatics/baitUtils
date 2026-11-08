@@ -37,6 +37,7 @@ class OligoSetResult:
     benchmark_results: Optional[Dict] = None
     coverage_arrays: Optional[Dict] = None
     per_oligo: Optional[pd.DataFrame] = None
+    reference_analysis: Optional[Dict] = None   # this set's coverage correlations and windows
 
 
 @dataclass
@@ -49,6 +50,12 @@ class ComparisonMetrics:
     mapping_efficiency_diff: float
     uniformity_diff: float
 
+
+
+def _breadth(coverage_stats: Dict) -> float:
+    """Breadth over non-N bases when known, as in the quality score."""
+    value = coverage_stats.get('coverage_breadth_non_n')
+    return coverage_stats.get('coverage_breadth', 0) if value is None else value
 
 class ComparativeAnalyzer:
     """
@@ -165,23 +172,26 @@ class ComparativeAnalyzer:
         )
         gap_analysis = gap_analyzer.analyze()
         
-        # Reference analysis (shared across all oligo sets)
+        # Reference analysis per set: the sequence features and difficulty are
+        # the same for every set, but the coverage correlations and challenging
+        # windows depend on this set's coverage (they used to come from the
+        # first set only, so comparison.json changed with the order of --sets)
+        reference_analysis = ReferenceAnalyzer(
+            reference_file=self.reference_file,
+            coverage_data=coverage_stats,
+            window_size=self.reference_analysis_window,
+            coverage_arrays=coverage_analyzer.coverage_arrays,
+            min_coverage=self.min_coverage,
+            reference_sequences=coverage_analyzer.sequences()
+        ).analyze()
         if self.reference_analysis is None:
-            ref_analyzer = ReferenceAnalyzer(
-                reference_file=self.reference_file,
-                coverage_data=coverage_stats,
-                window_size=self.reference_analysis_window,
-                coverage_arrays=coverage_analyzer.coverage_arrays,
-                min_coverage=self.min_coverage,
-                reference_sequences=coverage_analyzer.sequences()
-            )
-            self.reference_analysis = ref_analyzer.analyze()
+            self.reference_analysis = reference_analysis   # source of the shared, sequence-only part
 
         # Quality scoring
         quality_scorer = QualityScorer(
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
-            reference_analysis=self.reference_analysis
+            reference_analysis=reference_analysis
         )
         quality_score = quality_scorer.calculate_quality_score()
         
@@ -189,7 +199,7 @@ class ComparativeAnalyzer:
         benchmark_analyzer = BenchmarkAnalyzer(
             coverage_stats=coverage_stats,
             gap_analysis=gap_analysis,
-            reference_analysis=self.reference_analysis,
+            reference_analysis=reference_analysis,
             quality_score=quality_score
         )
         benchmark_results = benchmark_analyzer.run_full_benchmark()
@@ -202,7 +212,8 @@ class ComparativeAnalyzer:
             quality_score=quality_score,
             benchmark_results=benchmark_results,
             coverage_arrays=coverage_analyzer.coverage_arrays,
-            per_oligo=coverage_analyzer.hit_table
+            per_oligo=coverage_analyzer.hit_table,
+            reference_analysis=reference_analysis
         )
     
     def generate_comparison_matrix(self) -> pd.DataFrame:
@@ -256,8 +267,10 @@ class ComparativeAnalyzer:
                 quality_diff = set1.quality_score.overall_score - set2.quality_score.overall_score
                 mapping_diff = (set1.coverage_stats.get('mapping_efficiency', 0) - 
                               set2.coverage_stats.get('mapping_efficiency', 0))
-                uniformity_diff = (set1.coverage_stats.get('coverage_gini', 0) - 
-                                 set2.coverage_stats.get('coverage_gini', 0))
+                # uniformity is 1 - Gini, so a positive difference means the
+                # first set is more uniform (the Gini difference had the opposite sign)
+                uniformity_diff = (set2.coverage_stats.get('coverage_gini', 0) -
+                                   set1.coverage_stats.get('coverage_gini', 0))
                 
                 comparison = ComparisonMetrics(
                     coverage_breadth_diff=coverage_diff,
@@ -304,8 +317,10 @@ class ComparativeAnalyzer:
         Rank oligo sets by a weighted composite score in 0-1.
 
         Each term is scaled to 0-1 before weighting: the quality score as
-        is, breadth and mapping efficiency as fractions, and a gap term that
-        falls linearly from 1 at no gaps to 0 at 100 gaps or more.
+        is, breadth (over non-N bases) and mapping efficiency as fractions,
+        and a gap term equal to the share of the reference not in gaps. The
+        gap term used to count gaps (1 at none, 0 at 100), which gave a set
+        that covers nothing (one gap per reference) almost the full weight.
 
         Args:
             weights: Custom weights for different metrics
@@ -323,9 +338,10 @@ class ComparativeAnalyzer:
             # Calculate composite score
             score = (
                 result.quality_score.overall_score * weights['quality_score'] +
-                result.coverage_stats.get('coverage_breadth', 0) / 100 * weights['coverage_breadth'] +
+                _breadth(result.coverage_stats) / 100 * weights['coverage_breadth'] +
                 result.coverage_stats.get('mapping_efficiency', 0) / 100 * weights['mapping_efficiency'] +
-                max(0.0, (100 - result.gap_analysis.get('total_gaps', 0)) / 100) * weights['gap_penalty']
+                min(1.0, max(0.0, 1.0 - result.gap_analysis.get('gap_percentage', 0.0) / 100))
+                * weights['gap_penalty']
             )
             scores.append((result.name, score))
         
@@ -365,14 +381,30 @@ class ComparativeAnalyzer:
         
         gap_analysis['overlapping_gaps'] = overlaps
         gap_analysis['unique_gaps'] = unique_gaps
-        gap_analysis['total_unique_regions'] = len(set(
-            (gap['chromosome'], gap['start'], gap['end']) 
-            for gaps in all_gaps.values() 
-            for gap in gaps
-        ))
+        # Distinct regions: overlapping gaps of different sets are one region,
+        # also when their edges differ (exact coordinates counted them twice)
+        gap_analysis['total_unique_regions'] = self._count_merged_regions(
+            gap for gaps in all_gaps.values() for gap in gaps)
         
         return gap_analysis
     
+    @staticmethod
+    def _count_merged_regions(gaps) -> int:
+        """Number of regions after merging overlapping half-open intervals per chromosome."""
+        by_chrom: Dict[str, List] = {}
+        for gap in gaps:
+            by_chrom.setdefault(gap['chromosome'], []).append((gap['start'], gap['end']))
+        regions = 0
+        for intervals in by_chrom.values():
+            end = None
+            for start, stop in sorted(intervals):
+                if end is None or start >= end:     # touching intervals share no base
+                    regions += 1
+                    end = stop
+                else:
+                    end = max(end, stop)
+        return regions
+
     def _find_overlapping_gaps(self, gaps1: List[Dict], gaps2: List[Dict]) -> List[Dict]:
         """Find gaps that overlap between two sets."""
         overlapping = []
@@ -460,7 +492,7 @@ class ComparativeAnalyzer:
                 f.write("GAP OVERLAP ANALYSIS\n")
                 f.write("=" * 50 + "\n\n")
                 
-                f.write(f"Total unique gap regions: {gap_analysis['total_unique_regions']}\n\n")
+                f.write(f"Distinct gap regions (overlapping gaps merged): {gap_analysis['total_unique_regions']}\n\n")
                 
                 f.write("UNIQUE GAPS BY SET:\n")
                 for set_name, gaps in gap_analysis['unique_gaps'].items():
